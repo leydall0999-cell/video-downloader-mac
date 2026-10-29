@@ -2170,6 +2170,100 @@ def get_browser_cookie_header(host: str, url: str) -> str | None:
     except Exception:
         return None
 
+
+def _jar_baidu_header(jar) -> str | None:
+    """从 yt-dlp 的 Cookie jar 里挑出 baidu.com 域的 Cookie，拼成请求头。
+
+    单个 jar 只含一个浏览器的单个 profile，按域过滤后合并即可；不同 profile
+    的同名 Cookie 互不影响，到上层 _dedupe_baidu 按 BDUSS 会话再去重。
+    返回 None 表示该 profile 没有百度登录态。
+    """
+    pairs: dict[str, str] = {}
+    for ck in jar:
+        domain = (getattr(ck, "domain", "") or "").lstrip(".")
+        if domain == "baidu.com" or domain.endswith(".baidu.com"):
+            name = getattr(ck, "name", "")
+            if name:
+                pairs[name] = getattr(ck, "value", "") or ""
+    if not pairs:
+        return None
+    return "; ".join(f"{k}={v}" for k, v in pairs.items())
+
+
+def _baidu_header_has_bduss(header: str) -> bool:
+    return "bduss=" in (header or "").lower()
+
+
+def _add_baidu_browser_cookie(header: str) -> bool:
+    """把一个浏览器 profile 的百度登录态入池（source='browser'）。
+
+    add_cookie 内部会验真（明确无效才拒）+ 探会员等级打 member 标记，这里不必重复。
+    返回是否真的新增/更新（去重命中已有条目也算成功）。
+    """
+    try:
+        from cookie_pool import add_cookie
+        return bool(add_cookie("baidu.com", header, source="browser"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def harvest_baidu_browser_cookies() -> list:
+    """枚举本机所有浏览器 profile 抓取 baidu.com 登录态，分别入池（2026-10-29）。
+
+    背景（用户实测根因）：原先 `get_browser_cookie_header` 只靠 `find_source` 取
+    「单个最优 profile」，于是 3 个 Chrome 账号只抓到 1 个、Safari 连来源表都没进
+    —— 多账号永远只剩一个进候选，会员优先排序也救不回「多账号里挑会员」这件事。
+    这里改成**全量枚举**：
+
+      · Safari（macOS 单 profile）：yt-dlp 直接读二进制库，无需 profile 参数；
+      · Chromium 系（Chrome/Chromium/Edge/Brave/Vivaldi/Opera）：逐 profile 抓
+        —— 用户提到的 3 个 Chrome 账号在 macOS 上是 3 个独立 profile 目录
+        （Default / Profile 1 / Profile 2 …），各自一份百度 session。
+
+    每个含 BDUSS 的 profile 各自构造 header 并 add_cookie 入池，由会员优先排序
+    挑会员账号走快通道。任何单浏览器 / 单 profile 失败都跳过，绝不影响主流程。
+    返回本次成功抓到的 header 列表（调用方可直接并入候选，省一次池读取）。
+    """
+    if _browser_cookies is None:
+        return []
+    try:
+        from yt_dlp.cookies import extract_cookies_from_browser
+    except Exception:  # yt-dlp 缺失（极少见）：静默降级，已有缓存/池兜底
+        return []
+
+    headers: list = []
+
+    # Safari（用户提到的 1 个 Safari 账号；非 macOS 平台 yt-dlp 会直接抛，已 try 兜住）
+    try:
+        jar = extract_cookies_from_browser("safari")
+        h = _jar_baidu_header(jar)
+        if h and _baidu_header_has_bduss(h):
+            headers.append(h)
+            _add_baidu_browser_cookie(h)
+    except Exception:  # noqa: BLE001 — Safari 没登录百度 / 库读不出都跳过
+        pass
+
+    # Chromium 系：逐 profile 抓（覆盖用户提到的 3 个 Chrome 账号）
+    for key in ("chrome", "chromium", "edge", "brave", "vivaldi", "opera"):
+        src = next((s for s in _browser_cookies._BROWSER_SOURCES if s["key"] == key), None)
+        if not src:
+            continue
+        try:
+            for profile, _db in _browser_cookies.iter_profiles(src):
+                try:
+                    jar = extract_cookies_from_browser(key, profile=profile)
+                    h = _jar_baidu_header(jar)
+                    if h and _baidu_header_has_bduss(h):
+                        headers.append(h)
+                        _add_baidu_browser_cookie(h)
+                except Exception:  # noqa: BLE001 — 单个 profile 抓不到不影响其他
+                    continue
+        except Exception:  # noqa: BLE001
+            continue
+
+    logger.info("[cookie] harvest baidu browser cookies n=%s", len(headers))
+    return headers
+
 def detect_browser_cookie(host: str) -> dict[str, Any]:
     """探测本机浏览器是否含目标站点的 Cookie，供前端「检测登录态」按钮与解析结果展示。
 
@@ -6970,6 +7064,21 @@ def _netdisk_sleep(seconds: float) -> None:
         time.sleep(seconds)
 
 
+def _netdisk_cooldown(seconds: float, task: "DownloadTask") -> None:
+    """可中断的长冷却（供撞 403 风控后的自动续传使用）。
+
+    分段睡眠，用户取消/暂停时立即返回，不阻塞整条下载线程。冷却时长跟随百度
+    风控窗口（分钟级），不是 0.8s 硬重试。
+    """
+    step = 2.0
+    elapsed = 0.0
+    while elapsed < seconds:
+        if getattr(task, "cancel_requested", False) or getattr(task, "pause_requested", False):
+            return
+        _netdisk_sleep(min(step, seconds - elapsed))
+        elapsed += step
+
+
 def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
                              cookie: str = "", proxy: str = "") -> None:
     """百度网盘直链 → 下载（**不经过 yt-dlp 解析**）。
@@ -7368,6 +7477,14 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
         return
     if fatal or any(v == 0 for v in done_map):
         msg = fatal[0] if fatal else "存在未完成分块"
+        # 🔴 标记「是否因 403 风控中断」：seen403>0 说明撞过百度按 IP 的瞬时风控，
+        # 与链接失效(31360/404)/磁盘满不同 —— 冷却后自动从断点续传有机会恢复
+        # （自动续传逻辑见 run_download 的网盘分支）。seen403==0 的失败（链接死、
+        # 磁盘满、文件打不开）绝不自动重试，避免无谓重试把风控越撞越死。
+        try:
+            task._netdisk_risk_blocked = seen403[0] > 0
+        except Exception:
+            task._netdisk_risk_blocked = False
         kept_bytes = 0
         for i in range(nblocks):
             if done_map[i]:
@@ -7420,6 +7537,38 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
                  filename=out.name, filesize=size, downloaded_bytes=size,
                  total_bytes=size, speed=0.0, eta=0)
 
+
+def _netdisk_run(task: DownloadTask, store: TaskStore, cookie: str, proxy: str) -> None:
+    """网盘直链下载 + 撞 403 风控后的自动断点续传。
+
+    首次下载到一半被百度按 IP 的瞬时风控拦下（seen403>0）时，不立即判失败，而是
+    跟随风控窗口长冷却（60/120/180s 阶梯）后自动从断点续传，最多 3 轮；超限或撞到的
+    不是风控（链接失效 31360/404、磁盘满、文件打不开）则直接以 failed 结束，绝不
+    无谓重试（避免把风控越撞越死）。断点（.part + 位图）由 _download_netdisk_direct
+    自行保留与续读，重跑即从已下位置接着来。
+    """
+    max_rounds = 3
+    for _round in range(max_rounds):
+        task._netdisk_risk_blocked = False
+        _download_netdisk_direct(task, store, cookie=cookie, proxy=proxy)
+        if not getattr(task, "_netdisk_risk_blocked", False):
+            return
+        if _round + 1 >= max_rounds:
+            return
+        cd = (60, 120, 180)[min(_round, 2)]
+        task.add_step("下载文件", "running",
+                      f"遇百度风控，冷却 {cd}s 后自动从断点续传（第 {_round + 1} 次）…")
+        task.log(f"[netdisk] 撞 403 风控中断，第 {_round + 1} 次自动续传（冷却 {cd}s）")
+        try:
+            store.update(task.id, status="running")
+        except Exception:
+            pass
+        _netdisk_cooldown(cd, task)
+        # 冷却期间用户取消/暂停则不再续传
+        if getattr(task, "cancel_requested", False) or getattr(task, "pause_requested", False):
+            return
+
+
 def _force_land_paused(task: DownloadTask, store: TaskStore) -> None:
     """暂停标志长期未被进度钩子消费时，由主等待循环就地落 paused。
 
@@ -7454,9 +7603,9 @@ def run_download(task: DownloadTask, store: TaskStore, quality_key: str, cookie:
     # 走 yt-dlp 会把标题换成直链路径段、扩展名猜成 .mp4（mp3 被存成 mp4），
     # 少数情况还会在 generic 提取阶段直接失败。
     if _is_netdisk_direct(task.url):
-        _download_netdisk_direct(task, store,
-                                 cookie=(cookie or task.cookie or ""),
-                                 proxy=(proxy or task.proxy or ""))
+        _netdisk_run(task, store,
+                     cookie=(cookie or task.cookie or ""),
+                     proxy=(proxy or task.proxy or ""))
         return
 
     # 运行代际：每次监督（首次下载 / resume 重提）自增。_run_once 在入口捕获自己的代际，
