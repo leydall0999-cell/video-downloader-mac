@@ -74,8 +74,10 @@ class BaiduContributeTest(unittest.TestCase):
 
     # -- 开关状态机 --------------------------------------------------------
 
-    def test_default_off_and_revoke(self):
-        self.assertFalse(bc.is_enabled(), "默认必须关闭")
+    def test_default_on_and_revoke(self):
+        self.assertTrue(bc.is_enabled(), "默认开启（2026-10-30 用户拍板）")
+        bc.set_enabled(False)
+        self.assertFalse(bc.is_enabled(), "显式取消勾选必须持久生效")
         bc.set_enabled(True)
         self.assertTrue(bc.is_enabled())
         st = bc.revoke()
@@ -131,7 +133,8 @@ class BaiduContributeTest(unittest.TestCase):
             r2 = bc.push_accounts(force=False)
         self.assertTrue(r2["skipped"], "账号集合未变化必须跳过")
         self.assertEqual(r2["pushed"], 0)
-        # 开关关闭时 auto_push 不推
+        # 开关关闭时 auto_push 不推（默认开，先显式关闭再验证旁路被闸）
+        bc.set_enabled(False)
         with mock.patch.object(bc, "push_accounts", wraps=bc.push_accounts) as wp:
             bc.auto_push_if_enabled()
         wp.assert_not_called()

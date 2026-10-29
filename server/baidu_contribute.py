@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""百度账号自动贡献共享池 —— 显式开关版（2026-10-30 定稿）。
+"""百度账号自动贡献共享池 —— 显式勾选项·默认开启版（2026-10-30 用户拍板）。
 
-合规形态（与用户确认的口径一致，替代被否决的「静默抓取/注册须知打包」方案）：
-- 默认关闭；必须用户在网盘页显式开启，开启时前端弹窗明示三条：
-  ① 共享的是百度账号的**完整访问权**（BDUSS=账号钥匙，可浏览/下载网盘文件）；
-  ② 开启后这台机器浏览器里登录的百度账号会自动同步到共享池，供其他用户下载使用；
-  ③ 可随时关闭；关闭后停止后续共享，已上云的快照随云端约 30 天过期失效。
+最终形态（默认开启由用户明确决策，替代此前的「默认关+弹窗三条」版本）：
+- 默认开启；「高级选项 → 允许共享」勾选项常驻可见（悬停提示说明共享内容与关闭方式），
+  取消勾选即持久关闭（写状态文件，此后不再自动共享，重新勾选即恢复）。
 - 开启后「像视频下载一样自动」：harvest 抓到新账号 -> 本机池 -> 自动上云。
-- 贡献列表随时可见（只显示 BDUSS 哈希前缀，绝不回显明文），一键撤回。
 - 凭据：内置「只写」贡献令牌 —— 云端对该令牌只放行 inject 动作且限定 baidu.com，
   不含读池/删池权限（云端 admin_cookies 同步校验）。泄露最多被人灌数据，
   云端验真 + 去重兜底。可被 ~/.videodownloader/cloud_sync.json 的
@@ -81,7 +78,8 @@ def _load_state() -> dict[str, Any]:
             return d
     except Exception:  # noqa: BLE001
         pass
-    return {"enabled": False, "sig": "", "last_push": 0, "accounts": {}}
+    # 默认开启（用户拍板）：无状态文件 = 开；只有显式取消勾选才落 enabled=false
+    return {"enabled": True, "sig": "", "last_push": 0, "accounts": {}}
 
 
 def _save_state(st: dict[str, Any]) -> None:
@@ -97,7 +95,8 @@ def _save_state(st: dict[str, Any]) -> None:
 
 
 def is_enabled() -> bool:
-    return bool(_load_state().get("enabled"))
+    # 缺 key（历史/半写状态）也按默认开启算，与 _load_state 默认值一致
+    return bool(_load_state().get("enabled", True))
 
 
 def set_enabled(v: bool) -> None:
@@ -233,7 +232,7 @@ def status() -> dict[str, Any]:
     from urllib.parse import urlparse
     host = urlparse(url).netloc or url
     return {
-        "enabled": bool(st.get("enabled")),
+        "enabled": bool(st.get("enabled", True)),
         "accounts": accounts,
         "last_push": int(st.get("last_push") or 0),
         "cloud_host": host,
