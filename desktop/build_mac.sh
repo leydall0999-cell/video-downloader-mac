@@ -495,7 +495,8 @@ if [ -n "$VDL_CYTHON_MODULES" ]; then
   # 2026-10-30：只写贡献令牌 —— 仓库源码永远占位符，构建时从本机密钥注入 staging
   # 副本（随 Cython 编进 .so，不进 git）。密钥缺失则保持占位符（运行时视为无凭据）。
   if [ -f "$NATIVE_STAGING/baidu_contribute.py" ] && [ -s "$HOME/.vdl_secrets/vdl_contribution_token" ]; then
-    /usr/bin/sed -i '' "s|__CONTRIB_TOKEN__|$(cat "$HOME/.vdl_secrets/vdl_contribution_token")|" "$NATIVE_STAGING/baidu_contribute.py"
+    # 只锚定 _DEFAULT_TOKEN 赋值行做替换；全局替换会连比对哨兵一起换掉（1.1.04 事故）
+    /usr/bin/sed -i '' "s|_DEFAULT_TOKEN = \"__CONTRIB_TOKEN__\"|_DEFAULT_TOKEN = \"$(cat "$HOME/.vdl_secrets/vdl_contribution_token")\"|" "$NATIVE_STAGING/baidu_contribute.py"
     echo "   ✔ 贡献令牌已注入 staging（仓库源码不受影响）"
   fi
   echo "▶ Cython 编译核心模块 ($VDL_CYTHON_MODULES) ..."

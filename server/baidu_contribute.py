@@ -66,7 +66,10 @@ def contribution_cfg() -> tuple[str, str]:
         except Exception:  # noqa: BLE001
             pass
     tok = (token or _DEFAULT_TOKEN).strip()
-    if tok == "__CONTRIB_TOKEN__":  # 未注入真实令牌的构建/开发环境：视为无凭据（push 跳过）
+    if not tok or tok.startswith("__CONTRIB"):
+        # 未注入真实令牌的构建/开发环境：视为无凭据（push 跳过）。
+        # 刻意用 startswith 而非「与占位符全等」的字面比较：发版注入是全局 sed 替换，
+        # 字面比较会被一并换成真令牌，导致判断恒真、令牌被自己抹空（1.1.04 首版事故）。
         tok = ""
     return (url or _DEFAULT_URL).rstrip("/"), tok
 

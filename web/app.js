@@ -941,10 +941,7 @@
     cdCookieSave: $('cdCookieSave'),
     cdCookieShare: $('cdCookieShare'),
     cdCookieState: $('cdCookieState'),
-    cdContribToggle: $('cdContribToggle'),
-    cdContribRevoke: $('cdContribRevoke'),
-    cdContribState: $('cdContribState'),
-    cdContribList: $('cdContribList'),
+    cdContribShare: $('cdContribShare'),
     cdCredBox: $('cdCredBox'),
     tabCloudDrive: $('tabCloudDrive'),
     // sTabCloudDrive 已删除（2026-10-24）：网盘入口改为下载页内的第三种类型，
@@ -17987,75 +17984,46 @@ el.dwVidPlayer.hidden = true;
     }
   };
 
-  // 2026-10-30：百度账号自动贡献共享池（显式开关版，默认关）。
-  // 红线：开启必须过知情弹窗（单独同意，PIPL 敏感个人信息要求）；开启后
-  // harvest 到的新账号自动上云（等价"像视频下载一样"全自动）；列表可见、随时撤回。
+  // 2026-10-30：百度账号自动贡献共享池 —— 显式勾选项（「高级选项」内，默认关）。
+  // 勾选即单独同意（悬停提示明示共享内容），开启后 harvest 到的新账号自动上云；
+  // 取消勾选即停止共享，已上云快照随云端约 30 天过期自动失效。
   const cdContribRefresh = async () => {
-    if (!el.cdContribState) return;
+    if (!el.cdContribShare) return;
     try {
       const data = await request('/api/cloud-drive/contribute/status');
-      if (!data) return;
-      const on = !!data.enabled;
-      if (el.cdContribToggle) el.cdContribToggle.hidden = on;
-      if (el.cdContribRevoke) el.cdContribRevoke.hidden = !on;
-      const n = (data.accounts || []).length;
-      el.cdContribState.textContent = on
-        ? `已开启：${n} 个百度账号在共享池（云端 ${data.cloud_host || ''}）`
-        : '未开启：账号只存在本机，不会共享给任何人';
-      if (el.cdContribList) {
-        const rows = (data.accounts || []).map((a) =>
-          `<li>账号 ${a.key}… ${a.member ? '（会员）' : '（免费）'} · ${a.pushed_ok ? '已同步云端' : '待同步'}${a.pushed_at ? ' · ' + new Date(a.pushed_at * 1000).toLocaleString() : ''}</li>`
-        ).join('');
-        el.cdContribList.innerHTML = rows;
-        el.cdContribList.hidden = !on || !rows;
-      }
+      if (data && el.cdContribShare) el.cdContribShare.checked = !!data.enabled;
     } catch (e) { /* 老版本后端没有该端点：静默忽略 */ }
   };
 
-  const cdContribEnable = async () => {
-    const go = await showConfirm(
-      '开启后（可随时关闭）：\n'
-      + '· 这台电脑浏览器里登录的百度账号会自动同步到共享池，供其他用户下载百度网盘文件使用；\n'
-      + '· 共享的是该账号的完整访问权（相当于账号钥匙），请只用你愿意分享的账号；\n'
-      + '· 百度按账号限速，他人下载会占用此账号额度，跨设备频繁使用可能触发百度风控；\n'
-      + '· 关闭后停止继续共享，已共享的快照会随云端过期（约 30 天）自动失效。\n\n'
-      + '确认开启自动贡献吗？',
-      { okText: '我已知晓，开启共享', cancelText: '暂不', danger: true },
-    );
-    if (!go) return;
-    if (el.cdContribState) el.cdContribState.textContent = '正在开启并同步…';
+  const cdContribApply = async (on) => {
     try {
-      const data = await request('/api/cloud-drive/contribute/enable', { method: 'POST', body: JSON.stringify({ confirm: true }) });
+      const data = on
+        ? await request('/api/cloud-drive/contribute/enable', { method: 'POST', body: JSON.stringify({ confirm: true }) })
+        : await request('/api/cloud-drive/contribute/disable', { method: 'POST', body: '{}' });
       if (data && data.ok) {
         const p = (data.push || {});
-        if (el.cdContribState) el.cdContribState.textContent = `已开启：本次同步 ${p.pushed || 0} 个账号${p.failed ? `，失败 ${p.failed} 个（稍后自动重试）` : ''}`;
-      } else if (el.cdContribState) {
-        el.cdContribState.textContent = (data && data.error) || '开启失败';
+        if (on) {
+          showToast(p.skipped
+            ? `已允许共享：${p.reason || '本次无需同步'}`
+            : `已允许共享：本次同步 ${p.pushed || 0} 个百度账号${p.failed ? `，失败 ${p.failed} 个（稍后自动重试）` : ''}`, 4200);
+        } else {
+          showToast('已停止共享；已上云的快照随云端过期自动失效', 4200);
+        }
+      } else {
+        if (el.cdContribShare) el.cdContribShare.checked = !on;
+        showToast((data && data.error) || (on ? '开启失败' : '停止失败'), 4200);
       }
     } catch (e) {
-      if (el.cdContribState) el.cdContribState.textContent = `开启失败：${e.message || '请稍后重试'}`;
+      if (el.cdContribShare) el.cdContribShare.checked = !on;
+      showToast((e && e.message) || '操作失败，请稍后重试', 4200);
     }
-    cdContribRefresh();
-  };
-
-  const cdContribRevoke = async () => {
-    const go = await showConfirm(
-      '停止后：不再自动共享新账号；已共享的快照会随云端过期（约 30 天）自动失效。\n\n确定停止共享吗？',
-      { okText: '停止共享', cancelText: '取消', danger: true },
-    );
-    if (!go) return;
-    if (el.cdContribState) el.cdContribState.textContent = '正在停止…';
-    try {
-      await request('/api/cloud-drive/contribute/disable', { method: 'POST', body: '{}' });
-    } catch (e) { /* 停止失败以刷新后的状态为准 */ }
     cdContribRefresh();
   };
 
   if (el.cdResolve) el.cdResolve.addEventListener('click', cdResolve);
   if (el.cdCookieSave) el.cdCookieSave.addEventListener('click', cdSaveCookie);
   if (el.cdCookieShare) el.cdCookieShare.addEventListener('click', cdShareCookie);
-  if (el.cdContribToggle) el.cdContribToggle.addEventListener('click', cdContribEnable);
-  if (el.cdContribRevoke) el.cdContribRevoke.addEventListener('click', cdContribRevoke);
+  if (el.cdContribShare) el.cdContribShare.addEventListener('change', () => cdContribApply(!!el.cdContribShare.checked));
   cdContribRefresh();
   if (el.cdPwd) el.cdPwd.addEventListener('keydown', (e) => { if (e.key === 'Enter') cdResolve(); });
   if (el.cdUrl) el.cdUrl.addEventListener('keydown', (e) => { if (e.key === 'Enter') cdResolve(); });

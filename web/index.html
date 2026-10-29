@@ -487,6 +487,9 @@
             <input id="proxyInput" class="adv-input" type="text" inputmode="url" spellcheck="false"
               placeholder="如 http://127.0.0.1:7890，留空走默认策略" data-page-node-id="707UKJXVNS6m8ML8Qgex5O" />
             <p class="adv-note" data-page-node-id="X7RawlaE2I3Jn4eXyz3ciU">Cookie 仅用于本次解析/下载，服务端不留存；代理留空时按平台自动选择。</p>
+            <label class="adv-checkbox-row" for="cdContribShare" title="开启后，这台电脑浏览器里登录的百度账号会自动共享到共享池，供其他用户解析下载百度网盘；可随时在这里关闭。">
+              <input type="checkbox" id="cdContribShare" /> 允许共享
+            </label>
           </div>
         </details>
 
@@ -2204,20 +2207,6 @@
       </div>
     </details>
 
-    <!-- 2026-10-30：百度账号自动贡献共享池 —— 显式开关版（默认关）。
-         开启即视为单独同意：弹窗明示完整访问权/供他人使用/可撤销三件事。 -->
-    <details class="howto cd-contrib" id="cdContribBox">
-      <summary class="howto-head"><span class="howto-ic" aria-hidden="true">🤝</span><span class="howto-title">共享我的百度账号给其他用户（可选）</span><span class="howto-caret" aria-hidden="true">▾</span></summary>
-      <div class="howto-body">
-        <p class="cd-hint">开启后，这台电脑浏览器里登录的百度账号会<b>自动</b>同步到共享池，供其他用户解析下载百度网盘——和视频下载一样全自动，无需再操作。共享的是<b>账号完整访问权</b>（相当于把账号钥匙给出去），请只用你愿意分享的账号；百度按账号限速，他人下载会占用该账号额度，跨设备频繁使用可能触发百度风控。</p>
-        <div class="cd-cred-actions">
-          <button type="button" class="btn btn-ghost btn-sm" id="cdContribToggle">开启自动贡献</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="cdContribRevoke" hidden>停止共享</button>
-          <span class="cd-cred-state" id="cdContribState"></span>
-        </div>
-        <ul class="cd-cred-state" id="cdContribList" hidden></ul>
-      </div>
-    </details>
   </section>
 
   <!-- 个人中心视图（左侧 tab 栏入口，整页承载记录/改密） -->
