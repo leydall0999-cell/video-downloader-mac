@@ -141,3 +141,81 @@ def test_netdisk_pause_keeps_part_and_bitmap(tmp_path, monkeypatch):
     assert (tmp_path / "netdisk.part").exists(), "暂停后 .part 被删了，无法续传"
     assert (tmp_path / "netdisk.part.map").exists(), "暂停后位图被删了，续传会从头下"
     assert not (tmp_path / "demo.mp4").exists()
+
+
+# ── 2026-10-29 百度瞬时风控回归：403 不能再把整任务判死 ──
+# 真实案例：379MB/91 块/24 连，块 3 吃 403，旧逻辑 ~5s 内连打 3 次全在
+# 风控窗口内 → 任务失败。现改为全局冷却（15/30/60s）+ 并发降档到 8。
+
+class _E403:
+    """模拟百度风控 403 响应（上下文管理器，与 requests 响应同形）。"""
+    status_code = 403
+    headers: dict = {}
+    url = "https://d.pcs.baidu.com/file/xxx"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_netdisk_403_cooldown_recovers(tmp_path, monkeypatch):
+    """某块先吃 403（瞬时风控）→ 冷却后重试必须成功，任务不能判死。"""
+    ch = 256 * 1024
+    total = ch * 4
+    monkeypatch.setattr(dl, "_NETDISK_403_BACKOFF", (0.05, 0.05, 0.05))
+
+    calls = []
+
+    def fake_get(url, headers=None, **kw):
+        rng = (headers or {}).get("Range", "")
+        calls.append(rng)
+        if rng == f"bytes=0-{ch - 1}" and calls.count(rng) == 1:
+            return _E403()          # 首个数据块第一次请求撞风控
+        start, end = (int(x) for x in rng[len("bytes="):].split("-"))
+        n = min(end - start + 1, total - start)
+        return _Resp(start, b"\0" * n, total)
+
+    patch_http(monkeypatch, fake_get)
+    monkeypatch.setattr(dl, "_pick_netdisk_ua", lambda *a, **kw: "netdisk;P2SP;3.0.20.138")
+    monkeypatch.setenv("VDL_NETDISK_CHUNK", str(ch))
+
+    task, store = _Task(tmp_path), _Store()
+    task.total_bytes = total
+    dl._download_netdisk_direct(task, store, cookie="BDUSS=x")
+
+    assert store.status == "completed", store.updates[-1]
+    assert (tmp_path / "demo.mp4").stat().st_size == total
+    # 首块确实重试过一次（403 一次 + 成功一次）
+    assert calls.count(f"bytes=0-{ch - 1}") == 2, calls
+    # 用户可见日志里说明限流与冷却
+    assert any("限流" in m and "403" in m for m in task.logs), task.logs
+
+
+def test_netdisk_persistent_403_fails_with_block_info(tmp_path, monkeypatch):
+    """持续 403（风控未解除）→ 走完全部退避后才判失败，且错误带块号。"""
+    ch = 256 * 1024
+    total = ch * 2
+    monkeypatch.setattr(dl, "_NETDISK_403_BACKOFF", (0.01, 0.01, 0.01))
+
+    def fake_get(url, headers=None, **kw):
+        rng = (headers or {}).get("Range", "")
+        if rng == "bytes=0-0":
+            start, end = 0, 0
+            return _Resp(start, b"\0", total)   # 探测正常，只有数据块被风控
+        return _E403()
+
+    patch_http(monkeypatch, fake_get)
+    monkeypatch.setattr(dl, "_pick_netdisk_ua", lambda *a, **kw: "netdisk;P2SP;3.0.20.138")
+    monkeypatch.setenv("VDL_NETDISK_CHUNK", str(ch))
+
+    task, store = _Task(tmp_path), _Store()
+    task.total_bytes = total
+    dl._download_netdisk_direct(task, store, cookie="BDUSS=x")
+
+    assert store.status == "failed", store.updates[-1]
+    # 块号信息在「下载文件」步骤的 error 明细里；落库 error 是统一用户文案
+    step_details = [str(a[2]) if len(a) > 2 else str(kw.get("detail", ""))
+                    for (a, kw) in task.steps]
+    assert any("块 0 下载失败" in d or "块 1 下载失败" in d for d in step_details), task.steps

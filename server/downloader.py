@@ -6875,6 +6875,12 @@ class _NetdiskHTTPError(RuntimeError):
         self.status = status
 
 
+# 🔴 百度瞬时风控（2026-10-29）：并发块收到 403 时按此序列做**全局冷却**，
+# 并把并发降档到 _NETDISK_403_CONNS。模块级常量便于离线测试打桩与后续调参。
+_NETDISK_403_BACKOFF = (15, 30, 60)     # 秒：第 1/2/3 次 403 后的全局歇息时长
+_NETDISK_403_CONNS = 8                  # 撞 403 后的最大并发连接数
+
+
 def _download_netdisk_serial(task: DownloadTask, store: TaskStore,
                              headers: dict, proxies, total: int, resume_from: int,
                              part: Path) -> tuple[bool, str]:
@@ -7111,6 +7117,41 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
     fatal: list = []
     started = time.time()
 
+    # 🔴 2026-10-29：24 连并发会撞百度按 IP 的瞬时风控——实测块 3 返回 403，
+    # 旧逻辑在 ~5s 内连打 3 次全落在风控窗口内 → 整任务被误判失败。
+    # 现改为：403 触发**全局冷却**（15/30/60s，冷却期所有 worker 在闸门处等待）
+    # + 并发**降档到 8**（几乎不再触发风控，速度仍有 ~2.5MB/s）。
+    flight = threading.Condition()
+    gate = {"max_flight": nconn, "active": 0, "cooldown_until": 0.0}
+    backoff_403 = _NETDISK_403_BACKOFF
+
+    def _gate_enter() -> None:
+        """排队领一个并发名额；风控冷却期内在此等待（全局一起歇）。"""
+        with flight:
+            while not stop.is_set():
+                wait = gate["cooldown_until"] - time.time()
+                if wait > 0:
+                    flight.wait(min(wait, 1.0))
+                    continue
+                if gate["active"] < gate["max_flight"]:
+                    gate["active"] += 1
+                    return
+                flight.wait(0.5)
+
+    def _gate_leave() -> None:
+        with flight:
+            gate["active"] -= 1
+            flight.notify_all()
+
+    def _sleep_check(seconds: float) -> bool:
+        """可中断退避：暂停/取消时立即返回 False。"""
+        end = time.time() + seconds
+        while time.time() < end:
+            if stop.is_set():
+                return False
+            time.sleep(min(0.5, max(0.05, end - time.time())))
+        return not stop.is_set()
+
     store.update(task.id, status="downloading", speed=0.0, eta=0,
                  downloaded_bytes=done_base,
                  progress=round(done_base / total * 100.0, 1) if done_base else 0.0)
@@ -7144,49 +7185,53 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
                 en = min(st + CHUNK, total) - 1
                 want = en - st + 1
                 err = None
-                for attempt in range(3):
+                for attempt in range(4):
                     if stop.is_set():
                         return
+                    _gate_enter()
                     try:
-                        h = dict(headers)
-                        h["Range"] = f"bytes={st}-{en}"
-                        with sess.get(task.url, headers=h, proxies=proxies,
-                                      stream=True, timeout=(15, 30),
-                                      allow_redirects=True) as r:
-                            if r.status_code >= 400:
-                                raise _NetdiskHTTPError(r.status_code)
-                            if r.status_code == 206:
-                                meta["ct"] = r.headers.get("Content-Type") or meta["ct"]
-                                meta["url"] = r.url or meta["url"]
-                            wf.seek(st)
-                            got = 0
-                            for piece in r.iter_content(256 * 1024):
-                                if not piece:
-                                    continue
-                                if stop.is_set():
-                                    return
-                                if (task.cancel_requested or task.is_finished
-                                        or task.pause_requested):
-                                    stop.set()
-                                    return
-                                wf.write(piece)
-                                got += len(piece)
-                                with lock:
-                                    done[0] += len(piece)
-                                    now = time.time()
-                                    if now - last_push[0] >= 0.5:
-                                        last_push[0] = now
-                                        speed = (done[0] - done_base) / max(now - started, 0.001)
-                                        store.update(
-                                            task.id,
-                                            downloaded_bytes=done[0],
-                                            progress=round(done[0] / total * 100.0, 1),
-                                            speed=round(max(speed, 0.0), 1),
-                                            eta=int((total - done[0]) / speed) if speed > 0 else 0,
-                                        )
-                        if got != want:
-                            raise RuntimeError(f"块 {i} 长度不符 {got} != {want}")
-                        wf.flush()
+                        try:
+                            h = dict(headers)
+                            h["Range"] = f"bytes={st}-{en}"
+                            with sess.get(task.url, headers=h, proxies=proxies,
+                                          stream=True, timeout=(15, 30),
+                                          allow_redirects=True) as r:
+                                if r.status_code >= 400:
+                                    raise _NetdiskHTTPError(r.status_code)
+                                if r.status_code == 206:
+                                    meta["ct"] = r.headers.get("Content-Type") or meta["ct"]
+                                    meta["url"] = r.url or meta["url"]
+                                wf.seek(st)
+                                got = 0
+                                for piece in r.iter_content(256 * 1024):
+                                    if not piece:
+                                        continue
+                                    if stop.is_set():
+                                        return
+                                    if (task.cancel_requested or task.is_finished
+                                            or task.pause_requested):
+                                        stop.set()
+                                        return
+                                    wf.write(piece)
+                                    got += len(piece)
+                                    with lock:
+                                        done[0] += len(piece)
+                                        now = time.time()
+                                        if now - last_push[0] >= 0.5:
+                                            last_push[0] = now
+                                            speed = (done[0] - done_base) / max(now - started, 0.001)
+                                            store.update(
+                                                task.id,
+                                                downloaded_bytes=done[0],
+                                                progress=round(done[0] / total * 100.0, 1),
+                                                speed=round(max(speed, 0.0), 1),
+                                                eta=int((total - done[0]) / speed) if speed > 0 else 0,
+                                            )
+                            if got != want:
+                                raise RuntimeError(f"块 {i} 长度不符 {got} != {want}")
+                            wf.flush()
+                        finally:
+                            _gate_leave()
                         with lock:
                             done_map[i] = 1
                             bmap.write_bytes(bytes(done_map))
@@ -7196,9 +7241,23 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
                         err = exc
                         if exc.status == 416:
                             break       # 已到文件尾（理论上不会进到这里）
+                        if exc.status == 403 and attempt < 3:
+                            # 百度瞬时风控：全局冷却 + 并发降档，还没到末次不算失败
+                            cool = backoff_403[min(attempt, len(backoff_403) - 1)]
+                            with flight:
+                                gate["cooldown_until"] = max(
+                                    gate["cooldown_until"], time.time() + cool)
+                                gate["max_flight"] = min(
+                                    gate["max_flight"], _NETDISK_403_CONNS)
+                            err = None
+                            task.log(f"块 {i} 被百度限流（403），全局歇 {cool}s 后继续"
+                                     f"（第 {attempt + 1}/3 次），并发已降到 "
+                                     f"{gate['max_flight']}")
+                            continue
                     except Exception as exc:  # noqa: BLE001
                         err = exc
-                    time.sleep(0.8 * (attempt + 1))
+                    if not _sleep_check(0.8 * (attempt + 1)):
+                        return
                 if err is not None:
                     with lock:
                         if not fatal:
