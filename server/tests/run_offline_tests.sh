@@ -1272,6 +1272,7 @@ run_pytest_root test_cookie_cache.py
 # 这类故障没有异常、没有日志，只能靠用例把每一环的契约钉死（离线，不碰真实浏览器数据）。
 run_pytest_root test_browser_cookies.py
 run_pytest_root test_harvest_baidu_browser_cookies.py # 多 profile 浏览器抓取：Chrome 多账号 + Safari 全量入池（2026-10-29）
+run_pytest_root test_baidu_contribute.py # 显式开关自动贡献共享池：状态机/分组/推送编排/占位符兜底/无明文（2026-10-30）
 run_root test_cookie_pool_bilibili.py
 run_pytest_root test_cookie_sync_ratelimit.py
 run_root test_crypto_unit.py

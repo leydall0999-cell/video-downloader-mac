@@ -473,7 +473,7 @@ echo "   ✔ yt-dlp 插件已 staging：$(find "$YDLP_STAGING" -type f | wc -l |
 # 包里是机器码，源码根本不存在（实测 inspect.getsource 抛 OSError）。
 # 只编「被逆向会造成实际损失」的模块 —— 全量编译会显著拉长构建时间并放大兼容性风险。
 # 逃生阀：VDL_CYTHON_MODULES="" 可关闭（例如紧急发版撞上编译器问题）。
-VDL_CYTHON_MODULES="${VDL_CYTHON_MODULES-license_client,user_membership,admin_store}"
+VDL_CYTHON_MODULES="${VDL_CYTHON_MODULES-license_client,user_membership,admin_store,baidu_contribute}"
 NATIVE_STAGING="${VDL_BUILD_WORKPATH}_native"
 NATIVE_PATH_ARG=""
 if [ -n "$VDL_CYTHON_MODULES" ]; then
@@ -492,6 +492,12 @@ if [ -n "$VDL_CYTHON_MODULES" ]; then
     cp "$REPO/server/$m.py" "$NATIVE_STAGING/"
     CY_SRCS+=("$m.py")
   done
+  # 2026-10-30：只写贡献令牌 —— 仓库源码永远占位符，构建时从本机密钥注入 staging
+  # 副本（随 Cython 编进 .so，不进 git）。密钥缺失则保持占位符（运行时视为无凭据）。
+  if [ -f "$NATIVE_STAGING/baidu_contribute.py" ] && [ -s "$HOME/.vdl_secrets/vdl_contribution_token" ]; then
+    /usr/bin/sed -i '' "s|__CONTRIB_TOKEN__|$(cat "$HOME/.vdl_secrets/vdl_contribution_token")|" "$NATIVE_STAGING/baidu_contribute.py"
+    echo "   ✔ 贡献令牌已注入 staging（仓库源码不受影响）"
+  fi
   echo "▶ Cython 编译核心模块 ($VDL_CYTHON_MODULES) ..."
   if ! ( cd "$NATIVE_STAGING" && "$VENV/bin/cythonize" -i -3 "${CY_SRCS[@]}" ) >/dev/null 2>"$VDL_BUILD_WORKPATH/cython.err"; then
     echo "❌ Cython 编译失败，详见 $VDL_BUILD_WORKPATH/cython.err"

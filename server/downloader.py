@@ -2261,6 +2261,15 @@ def harvest_baidu_browser_cookies() -> list:
         except Exception:  # noqa: BLE001
             continue
 
+    # 2026-10-30：用户显式开启「自动贡献共享池」后，抓到的新账号自动上云。
+    # 默认关；未开启/无凭据/网络失败一律静默跳过，绝不影响抓取主流程。
+    if headers:
+        try:
+            from baidu_contribute import auto_push_if_enabled
+            auto_push_if_enabled()
+        except Exception:  # noqa: BLE001 — 贡献是旁路，任何异常不碰主流程
+            pass
+
     logger.info("[cookie] harvest baidu browser cookies n=%s", len(headers))
     return headers
 

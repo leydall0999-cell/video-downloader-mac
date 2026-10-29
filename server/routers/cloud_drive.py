@@ -412,6 +412,45 @@ def cloud_drive_contribute() -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# 2026-10-30：百度账号「自动贡献共享池」——显式开关版（默认关）。
+# 同意动作在前端知情弹窗（单独同意）；这里只做状态机/推送编排/撤回。
+# 列表只回 BDUSS 哈希前缀，绝不回显明文（baidu_contribute.status 已保证）。
+# ---------------------------------------------------------------------------
+
+
+class ContributeEnableReq(BaseModel):
+    """开启自动贡献的请求体：confirm 必须为 true（对应前端知情弹窗的单独同意）。"""
+    confirm: bool = False
+
+
+@router.get('/api/cloud-drive/contribute/status')
+def cloud_drive_contribute_status() -> dict:
+    from baidu_contribute import status as _contrib_status
+    return _contrib_status()
+
+
+@router.post('/api/cloud-drive/contribute/enable')
+def cloud_drive_contribute_enable(req: ContributeEnableReq) -> dict:
+    if not req.confirm:
+        # 没过前端知情弹窗就调不到这里：必须显式 confirm，否则视作未同意
+        logger.warning("[cloud_drive] contribute/enable 被拒：缺少显式确认")
+        return {"ok": False, "error": "缺少显式确认（confirm）"}
+    from baidu_contribute import set_enabled, push_accounts
+    from baidu_contribute import status as _contrib_status
+    set_enabled(True)
+    push = push_accounts(force=True)
+    logger.info("[cloud-drive] contribute enable pushed=%s failed=%s",
+                push.get("pushed"), push.get("failed"))
+    return {"ok": True, "push": push, "status": _contrib_status()}
+
+
+@router.post('/api/cloud-drive/contribute/disable')
+def cloud_drive_contribute_disable() -> dict:
+    from baidu_contribute import revoke
+    return {"ok": True, "status": revoke()}
+
+
 @router.post('/api/cloud-drive/resolve')
 def cloud_drive_resolve(req: CloudDriveResolveReq, request: app.Request = None) -> dict:
     cands = _baidu_login_cookies()
