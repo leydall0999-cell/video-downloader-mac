@@ -143,15 +143,18 @@ def test_netdisk_pause_keeps_part_and_bitmap(tmp_path, monkeypatch):
     assert not (tmp_path / "demo.mp4").exists()
 
 
-# ── 2026-10-29 百度瞬时风控回归：403 不能再把整任务判死 ──
-# 真实案例：379MB/91 块/24 连，块 3 吃 403，旧逻辑 ~5s 内连打 3 次全在
-# 风控窗口内 → 任务失败。现改为全局冷却（15/30/60s）+ 并发降档到 8。
+# ── 2026-10-29 实测翻车回归：24 连下 361MB，第 15 块起 HTTP 403 ──
+# 百度按「连接数 / 时间窗」限流，不是权限问题：同一账号同一 dlink，单连接从不 403。
+# 旧实现一处 403 就判整只任务死刑，还把 .part 删了 —— 361MB 下到 17% 全丢。
 
-class _E403:
-    """模拟百度风控 403 响应（上下文管理器，与 requests 响应同形）。"""
+class _Forbidden:
+    """403 响应桩（不走 _Resp：那条路径是 206）。"""
+
     status_code = 403
-    headers: dict = {}
-    url = "https://d.pcs.baidu.com/file/xxx"
+
+    def __init__(self):
+        self.headers = {"Retry-After": "1"}
+        self.url = "https://d.pcs.baidu.com/file/xxx"
 
     def __enter__(self):
         return self
@@ -159,63 +162,146 @@ class _E403:
     def __exit__(self, *a):
         return False
 
+    def iter_content(self, size):
+        return iter(())
 
-def test_netdisk_403_cooldown_recovers(tmp_path, monkeypatch):
-    """某块先吃 403（瞬时风控）→ 冷却后重试必须成功，任务不能判死。"""
+
+def _rng_of(headers):
+    rng = (headers or {}).get("Range", "")
+    return int(rng[len("bytes="):].split("-")[0]), int(rng[len("bytes="):].split("-")[1])
+
+
+def test_netdisk_403_retries_then_succeeds(tmp_path, monkeypatch):
+    """403 必须靠退避重试缓过来，而不是一次就整只任务失败。"""
+    import threading as _th
+
     ch = 256 * 1024
-    total = ch * 4
-    monkeypatch.setattr(dl, "_NETDISK_403_BACKOFF", (0.05, 0.05, 0.05))
-
-    calls = []
+    total = ch * 3
+    tried = {}
+    lock = _th.Lock()
 
     def fake_get(url, headers=None, **kw):
-        rng = (headers or {}).get("Range", "")
-        calls.append(rng)
-        if rng == f"bytes=0-{ch - 1}" and calls.count(rng) == 1:
-            return _E403()          # 首个数据块第一次请求撞风控
-        start, end = (int(x) for x in rng[len("bytes="):].split("-"))
-        n = min(end - start + 1, total - start)
-        return _Resp(start, b"\0" * n, total)
+        st, en = _rng_of(headers)
+        if en - st == 0:                       # 1 字节探测
+            return _Resp(0, b"\0", total)
+        with lock:
+            tried[st] = tried.get(st, 0) + 1
+            n = tried[st]
+        if n <= 2:                             # 前两次撞限流
+            return _Forbidden()
+        return _Resp(st, b"\xcc" * (en - st + 1), total)
 
     patch_http(monkeypatch, fake_get)
     monkeypatch.setattr(dl, "_pick_netdisk_ua", lambda *a, **kw: "netdisk;P2SP;3.0.20.138")
+    monkeypatch.setattr(dl, "_netdisk_sleep", lambda s: None)   # 退避不真睡
     monkeypatch.setenv("VDL_NETDISK_CHUNK", str(ch))
+    monkeypatch.setenv("VDL_NETDISK_CONN", "2")
 
     task, store = _Task(tmp_path), _Store()
-    task.total_bytes = total
+    task.total_bytes = 0
     dl._download_netdisk_direct(task, store, cookie="BDUSS=x")
 
     assert store.status == "completed", store.updates[-1]
     assert (tmp_path / "demo.mp4").stat().st_size == total
-    # 首块确实重试过一次（403 一次 + 成功一次）
-    assert calls.count(f"bytes=0-{ch - 1}") == 2, calls
-    # 用户可见日志里说明限流与冷却
-    assert any("限流" in m and "403" in m for m in task.logs), task.logs
 
 
-def test_netdisk_persistent_403_fails_with_block_info(tmp_path, monkeypatch):
-    """持续 403（风控未解除）→ 走完全部退避后才判失败，且错误带块号。"""
+def test_netdisk_403_keeps_resume_state(tmp_path, monkeypatch):
+    """某块始终 403：任务判失败，但 .part + 位图必须留着，重试才不用从头下。"""
     ch = 256 * 1024
-    total = ch * 2
-    monkeypatch.setattr(dl, "_NETDISK_403_BACKOFF", (0.01, 0.01, 0.01))
+    total = ch * 3
+    bad_start = ch * 2                          # 第 3 块永远 403
 
     def fake_get(url, headers=None, **kw):
-        rng = (headers or {}).get("Range", "")
-        if rng == "bytes=0-0":
-            start, end = 0, 0
-            return _Resp(start, b"\0", total)   # 探测正常，只有数据块被风控
-        return _E403()
+        st, en = _rng_of(headers)
+        if en - st == 0:
+            return _Resp(0, b"\0", total)
+        if st == bad_start:
+            return _Forbidden()
+        return _Resp(st, b"\xdd" * (en - st + 1), total)
 
     patch_http(monkeypatch, fake_get)
     monkeypatch.setattr(dl, "_pick_netdisk_ua", lambda *a, **kw: "netdisk;P2SP;3.0.20.138")
+    monkeypatch.setattr(dl, "_netdisk_sleep", lambda s: None)
     monkeypatch.setenv("VDL_NETDISK_CHUNK", str(ch))
+    monkeypatch.setenv("VDL_NETDISK_CONN", "2")
 
     task, store = _Task(tmp_path), _Store()
-    task.total_bytes = total
+    task.total_bytes = 0
     dl._download_netdisk_direct(task, store, cookie="BDUSS=x")
 
     assert store.status == "failed", store.updates[-1]
-    # 块号信息在「下载文件」步骤的 error 明细里；落库 error 是统一用户文案
-    step_details = [str(a[2]) if len(a) > 2 else str(kw.get("detail", ""))
-                    for (a, kw) in task.steps]
-    assert any("块 0 下载失败" in d or "块 1 下载失败" in d for d in step_details), task.steps
+    assert not (tmp_path / "demo.mp4").exists()
+    part, bmap = tmp_path / "netdisk.part", tmp_path / "netdisk.part.map"
+    assert part.exists(), "失败时把 .part 删了 —— 重试只能从头下"
+    assert bmap.exists(), "失败时把位图删了 —— 续传无从判断已完成块"
+    assert sum(bmap.read_bytes()) == 2, "已完成的 2 块应保留在位图里"
+    assert "断点" in (store.updates[-1].get("hint") or "")
+
+
+def test_netdisk_conn_count_is_adaptive(monkeypatch):
+    """并发不再按 UA 分档，改为自适应水位（v1.1.1 的「浏览器 UA→4 连」是错的）。
+
+    2026-10-29 15:40 用户实测：界面显示「4 连接 / 509KB/s」，而 Mac 侧 24 连。
+    原因：分享链接换出的 dlink 几乎只认浏览器 UA，于是「按通道分档」等于把**所有**
+    网盘下载都压到 4 连。现在默认 16，撞限流才降，降过就记住。
+    """
+    chunk = 4 * 1024 * 1024
+    big = chunk * 200
+
+    monkeypatch.delenv("VDL_NETDISK_CONN", raising=False)
+    monkeypatch.setattr(dl, "_NETDISK_CONN_HINT", [0])
+    # UA 不再影响档位
+    assert dl._netdisk_conn_count(big, chunk, "netdisk;P2SP;3.0.20.138") == 16
+    assert dl._netdisk_conn_count(big, chunk, "Mozilla/5.0 (Macintosh) Chrome/131") == 16
+
+    # 小文件按块数收敛，不开多余连接
+    assert dl._netdisk_conn_count(chunk * 2, chunk, "Mozilla/5.0 Chrome/131") == 2
+
+    # 水位记忆：上次撞限流降到 8，下次就从 8 起
+    dl._NETDISK_CONN_HINT[0] = 8
+    assert dl._netdisk_conn_count(big, chunk, "Mozilla/5.0 Chrome/131") == 8
+
+    # 环境变量仍然可以强行覆盖（排查用），且不超过硬上限 32
+    monkeypatch.setenv("VDL_NETDISK_CONN", "24")
+    assert dl._netdisk_conn_count(big, chunk, "Mozilla/5.0 Chrome/131") == 24
+    monkeypatch.setenv("VDL_NETDISK_CONN", "64")
+    assert dl._netdisk_conn_count(big, chunk, "Mozilla/5.0 Chrome/131") == 32
+
+
+def test_netdisk_shrinks_connections_on_403(tmp_path, monkeypatch):
+    """持续撞 403 就往下降并发，而不是硬顶到任务作废。"""
+    import threading as _th
+
+    ch = 256 * 1024
+    total = ch * 24
+    quota = {"left": 6}          # 前 6 次请求一律 403，模拟限流窗口
+    lock = _th.Lock()
+
+    def fake_get(url, headers=None, **kw):
+        st, en = _rng_of(headers)
+        if en - st == 0:
+            return _Resp(0, b"\0", total)
+        with lock:
+            limited = quota["left"] > 0
+            if limited:
+                quota["left"] -= 1
+        if limited:
+            return _Forbidden()
+        return _Resp(st, b"\xee" * (en - st + 1), total)
+
+    patch_http(monkeypatch, fake_get)
+    monkeypatch.setattr(dl, "_pick_netdisk_ua", lambda *a, **kw: "Mozilla/5.0 Chrome/131")
+    monkeypatch.setattr(dl, "_netdisk_sleep", lambda s: None)
+    monkeypatch.setattr(dl, "_NETDISK_CONN_HINT", [0])
+    monkeypatch.setenv("VDL_NETDISK_CHUNK", str(ch))
+    monkeypatch.setenv("VDL_NETDISK_CONN", "8")
+
+    task, store = _Task(tmp_path), _Store()
+    task.total_bytes = 0
+    dl._download_netdisk_direct(task, store, cookie="BDUSS=x")
+
+    assert store.status == "completed", store.updates[-1]
+    assert (tmp_path / "demo.mp4").stat().st_size == total
+    logs = " ".join(task.logs if hasattr(task, "logs") else [])
+    assert "并发自动降到" in logs, logs[:300]
+    assert dl._NETDISK_CONN_HINT[0] < 8, "撞过限流后水位必须下调，下次别再顶"

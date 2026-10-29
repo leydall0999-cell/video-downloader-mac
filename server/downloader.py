@@ -12,6 +12,7 @@ import subprocess
 import sys
 import json
 import base64
+import random
 import time
 import threading
 from pathlib import Path
@@ -6849,36 +6850,48 @@ def _netdisk_output_name(task: DownloadTask, content_type: str, final_url: str) 
     return base
 
 
-def _netdisk_conn_count(total: int, chunk: int) -> int:
+# 并发水位记忆（进程级）：上次跑通时用的连接数，下次直接从这里起步。
+# 用单元素 list 而非 global 变量，方便在嵌套函数里改写。
+_NETDISK_CONN_HINT: list[int] = [0]
+_NETDISK_CONN_DEFAULT = 16
+_NETDISK_CONN_MAX = 32
+
+
+def _netdisk_conn_count(total: int, chunk: int, ua: str = "") -> int:
     """并发连接数（百度直链限速是 per-connection，只能靠叠加连接提速）。
 
-    实测（2026-10-28，439MB 文件 / 超会账号 / 4MB 块 / 12s 窗口，curl 矩阵）：
+    实测（2026-10-28 夜，439MB / 超会账号 / 4MB 块 / 12s 窗口，curl 矩阵）：
         1 连 0.30 MB/s · 8 连 2.47 · 16 连 5.33 · 24 连 7.45 · 32 连 9.63 · 48 连 14.55
     每连接恒定 ~0.30MB/s，近似线性 ⇒ **连接数是唯一有效杠杆**，账号等级只决定单连接
-    基线（本机非会员 0.09~0.15）。Mac 侧 10MB/s ≈ 32~40 连。
-    默认 24 是「明显提速又不易在单 IP 上撞风控」的折中；`VDL_NETDISK_CONN` 可覆盖，
-    设 1 即退回单连接。小文件按块数收敛 —— 每条连都要重握手 + 慢启动，开太多更慢
-    （实测 1MB 块 16 连只有 1.51MB/s，4MB 块 16 连 5.33MB/s）。
+    基线（本机非会员 0.09~0.15）。
+
+    🔴 v1.1.1 的「浏览器 UA → 4 连」是个错误，已撤（2026-10-29 15:40 用户实测
+    「还是跟 mac 差很多」，界面显示 4 连接 / 509KB/s）：分享链接换出的 dlink 几乎
+    只认浏览器 UA（P2SP UA 回 403 user is not authorized），所以那条「按通道分档」
+    实际等于给**所有**网盘下载设了 4 连上限 —— Mac 侧跑 24 连，当然快得多。
+
+    现在改自适应：默认 16 起，单次下载内撞限流自动减半（最少 2）并记住这档水位，
+    跑通且零 403 时下次再抬 8 档（上限 32）。安全性不靠拍脑袋压并发，而靠
+    403 退避重试 + 单连接补漏 + 断点保留。
+    `VDL_NETDISK_CONN` 仍可覆盖（设 1 即退回单连接）。小文件按块数收敛 ——
+    每条连都要重握手 + 慢启动，开太多更慢（实测 1MB 块 16 连只有 1.51MB/s，
+    4MB 块 16 连 5.33MB/s）。
     """
     blocks = max(1, (total + chunk - 1) // chunk)
     raw = (os.environ.get("VDL_NETDISK_CONN") or "").strip()
     if raw.isdigit() and int(raw) > 0:
         want = int(raw)
     else:
-        want = 24 if blocks >= 24 else max(2, blocks)
-    return max(1, min(want, blocks, 64))
+        want = _NETDISK_CONN_HINT[0] or _NETDISK_CONN_DEFAULT
+    return max(1, min(want, blocks, _NETDISK_CONN_MAX))
 
 
 class _NetdiskHTTPError(RuntimeError):
-    def __init__(self, status: int):
+    def __init__(self, status: int, retry_after: str | None = None):
         super().__init__(f"HTTP {status}")
         self.status = status
-
-
-# 🔴 百度瞬时风控（2026-10-29）：并发块收到 403 时按此序列做**全局冷却**，
-# 并把并发降档到 _NETDISK_403_CONNS。模块级常量便于离线测试打桩与后续调参。
-_NETDISK_403_BACKOFF = (15, 30, 60)     # 秒：第 1/2/3 次 403 后的全局歇息时长
-_NETDISK_403_CONNS = 8                  # 撞 403 后的最大并发连接数
+        # 403 时百度有时会给 Retry-After，尊重它比自己拍脑袋退避更省事
+        self.retry_after = retry_after
 
 
 def _download_netdisk_serial(task: DownloadTask, store: TaskStore,
@@ -6946,6 +6959,15 @@ def _download_netdisk_serial(task: DownloadTask, store: TaskStore,
                 break
             offset = done
     return True, last_ct
+
+
+def _netdisk_sleep(seconds: float) -> None:
+    """退避睡眠的唯一出口。
+
+    单独抽一层是为了测试可打桩：403 退避最长会睡 30s，用例里真睡就没法跑了。
+    """
+    if seconds > 0:
+        time.sleep(seconds)
 
 
 def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
@@ -7109,48 +7131,16 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
         if not done_map[i]:
             q.put(i)
 
-    nconn = _netdisk_conn_count(total, CHUNK)
+    nconn = _netdisk_conn_count(total, CHUNK, headers.get("User-Agent", ""))
+    limit = [nconn]               # 当前允许的活动连接数（撞限流会就地打折）
     stop = threading.Event()
     lock = threading.Lock()
     done = [done_base]
     last_push = [0.0]
     fatal: list = []
+    seen403 = [0]                 # 累计 403 次数（日志与降级判断用）
+    cool_until = [0.0]            # 全局冷却到期时间戳：撞到 403 时所有连接一起歇
     started = time.time()
-
-    # 🔴 2026-10-29：24 连并发会撞百度按 IP 的瞬时风控——实测块 3 返回 403，
-    # 旧逻辑在 ~5s 内连打 3 次全落在风控窗口内 → 整任务被误判失败。
-    # 现改为：403 触发**全局冷却**（15/30/60s，冷却期所有 worker 在闸门处等待）
-    # + 并发**降档到 8**（几乎不再触发风控，速度仍有 ~2.5MB/s）。
-    flight = threading.Condition()
-    gate = {"max_flight": nconn, "active": 0, "cooldown_until": 0.0}
-    backoff_403 = _NETDISK_403_BACKOFF
-
-    def _gate_enter() -> None:
-        """排队领一个并发名额；风控冷却期内在此等待（全局一起歇）。"""
-        with flight:
-            while not stop.is_set():
-                wait = gate["cooldown_until"] - time.time()
-                if wait > 0:
-                    flight.wait(min(wait, 1.0))
-                    continue
-                if gate["active"] < gate["max_flight"]:
-                    gate["active"] += 1
-                    return
-                flight.wait(0.5)
-
-    def _gate_leave() -> None:
-        with flight:
-            gate["active"] -= 1
-            flight.notify_all()
-
-    def _sleep_check(seconds: float) -> bool:
-        """可中断退避：暂停/取消时立即返回 False。"""
-        end = time.time() + seconds
-        while time.time() < end:
-            if stop.is_set():
-                return False
-            time.sleep(min(0.5, max(0.05, end - time.time())))
-        return not stop.is_set()
 
     store.update(task.id, status="downloading", speed=0.0, eta=0,
                  downloaded_bytes=done_base,
@@ -7158,7 +7148,72 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
     task.add_step("下载文件", "running",
                   resume_note or f"并发 {nconn} 连接下载 {nblocks} 块…")
 
-    def _worker() -> None:
+    def _account(nbytes: int) -> None:
+        """进度上报（节流到 0.5s 一次，避免多线程高频写 store）。"""
+        with lock:
+            done[0] += nbytes
+            now = time.time()
+            if now - last_push[0] < 0.5:
+                return
+            last_push[0] = now
+            speed = (done[0] - done_base) / max(now - started, 0.001)
+            store.update(
+                task.id,
+                downloaded_bytes=done[0],
+                progress=round(done[0] / total * 100.0, 1),
+                speed=round(max(speed, 0.0), 1),
+                eta=int((total - done[0]) / speed) if speed > 0 else 0,
+            )
+
+    def _fetch_into(wf, sess, i: int) -> None:
+        """拉第 i 块写进 wf（工作句柄），成功则置位图。失败一律抛异常。
+
+        🔴 403 是**可以缓过来的**（百度按连接/时间窗限流，不是权限问题）：这里只
+        负责把 403 报上去，重试策略由调用方按「线程池 → 单连接补漏」两级决定。
+        """
+        st = i * CHUNK
+        en = min(st + CHUNK, total) - 1
+        want = en - st + 1
+        h = dict(headers)
+        h["Range"] = f"bytes={st}-{en}"
+        with sess.get(task.url, headers=h, proxies=proxies,
+                      stream=True, timeout=(15, 30),
+                      allow_redirects=True) as r:
+            if r.status_code >= 400:
+                raise _NetdiskHTTPError(r.status_code,
+                                        r.headers.get("Retry-After"))
+            if r.status_code == 206:
+                meta["ct"] = r.headers.get("Content-Type") or meta["ct"]
+                meta["url"] = r.url or meta["url"]
+            wf.seek(st)
+            got = 0
+            for piece in r.iter_content(256 * 1024):
+                if not piece:
+                    continue
+                if task.cancel_requested or task.is_finished or task.pause_requested:
+                    stop.set()
+                    raise _NetdiskPaused()
+                wf.write(piece)
+                got += len(piece)
+                _account(len(piece))
+        if got != want:
+            raise RuntimeError(f"块 {i} 长度不符 {got} != {want}")
+        wf.flush()
+        with lock:
+            done_map[i] = 1
+            bmap.write_bytes(bytes(done_map))
+
+    def _backoff(attempt: int, retry_after) -> float:
+        """403 用更长的退避：百度限流窗口是秒级到分钟级，0.8s 硬重试等于白撞。"""
+        base = min(2.0 * (2 ** attempt), 30.0)
+        try:
+            if retry_after:
+                base = max(base, min(float(retry_after), 60.0))
+        except (TypeError, ValueError):
+            pass
+        return base + random.uniform(0, 1.0)
+
+    def _worker(idx: int) -> None:
         try:
             wf = open(part, "r+b")
         except OSError as exc:
@@ -7174,6 +7229,9 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
         sess.trust_env = False
         try:
             while not stop.is_set():
+                # 撞过限流后水位会降，超编的 worker 直接退役（不再抢新块）
+                if idx >= limit[0]:
+                    return
                 if task.cancel_requested or task.is_finished or task.pause_requested:
                     stop.set()
                     return
@@ -7181,88 +7239,48 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
                     i = q.get_nowait()
                 except queue.Empty:
                     return
-                st = i * CHUNK
-                en = min(st + CHUNK, total) - 1
-                want = en - st + 1
                 err = None
                 for attempt in range(4):
                     if stop.is_set():
                         return
-                    _gate_enter()
+                    gap = cool_until[0] - time.time()
+                    if gap > 0:
+                        _netdisk_sleep(min(gap, 60.0))
                     try:
-                        try:
-                            h = dict(headers)
-                            h["Range"] = f"bytes={st}-{en}"
-                            with sess.get(task.url, headers=h, proxies=proxies,
-                                          stream=True, timeout=(15, 30),
-                                          allow_redirects=True) as r:
-                                if r.status_code >= 400:
-                                    raise _NetdiskHTTPError(r.status_code)
-                                if r.status_code == 206:
-                                    meta["ct"] = r.headers.get("Content-Type") or meta["ct"]
-                                    meta["url"] = r.url or meta["url"]
-                                wf.seek(st)
-                                got = 0
-                                for piece in r.iter_content(256 * 1024):
-                                    if not piece:
-                                        continue
-                                    if stop.is_set():
-                                        return
-                                    if (task.cancel_requested or task.is_finished
-                                            or task.pause_requested):
-                                        stop.set()
-                                        return
-                                    wf.write(piece)
-                                    got += len(piece)
-                                    with lock:
-                                        done[0] += len(piece)
-                                        now = time.time()
-                                        if now - last_push[0] >= 0.5:
-                                            last_push[0] = now
-                                            speed = (done[0] - done_base) / max(now - started, 0.001)
-                                            store.update(
-                                                task.id,
-                                                downloaded_bytes=done[0],
-                                                progress=round(done[0] / total * 100.0, 1),
-                                                speed=round(max(speed, 0.0), 1),
-                                                eta=int((total - done[0]) / speed) if speed > 0 else 0,
-                                            )
-                            if got != want:
-                                raise RuntimeError(f"块 {i} 长度不符 {got} != {want}")
-                            wf.flush()
-                        finally:
-                            _gate_leave()
-                        with lock:
-                            done_map[i] = 1
-                            bmap.write_bytes(bytes(done_map))
+                        _fetch_into(wf, sess, i)
                         err = None
                         break
+                    except _NetdiskPaused:
+                        return
                     except _NetdiskHTTPError as exc:
                         err = exc
-                        if exc.status == 416:
-                            break       # 已到文件尾（理论上不会进到这里）
-                        if exc.status == 403 and attempt < 3:
-                            # 百度瞬时风控：全局冷却 + 并发降档，还没到末次不算失败
-                            cool = backoff_403[min(attempt, len(backoff_403) - 1)]
-                            with flight:
-                                gate["cooldown_until"] = max(
-                                    gate["cooldown_until"], time.time() + cool)
-                                gate["max_flight"] = min(
-                                    gate["max_flight"], _NETDISK_403_CONNS)
-                            err = None
-                            task.log(f"块 {i} 被百度限流（403），全局歇 {cool}s 后继续"
-                                     f"（第 {attempt + 1}/3 次），并发已降到 "
-                                     f"{gate['max_flight']}")
-                            continue
+                        if exc.status == 403:
+                            dropped = 0
+                            with lock:
+                                seen403[0] += 1
+                                # 每撞 3 次限流降一档（最少 2 条），档位记进水位
+                                if seen403[0] % 3 == 0 and limit[0] > 2:
+                                    limit[0] = max(2, limit[0] // 2)
+                                    _NETDISK_CONN_HINT[0] = limit[0]
+                                    dropped = limit[0]
+                                # 指数式全局冷却：第一批等 3s，持续撞就 6/12/24s
+                                cool_until[0] = max(
+                                    cool_until[0],
+                                    time.time() + min(3.0 * (2 ** attempt), 24.0))
+                            if dropped:
+                                logger.info("[netdisk] 403 限流 %d 次，并发降到 %d 条",
+                                            seen403[0], dropped)
+                                task.log(f"百度限流（403 已 {seen403[0]} 次），"
+                                         f"并发自动降到 {dropped} 条继续")
+                        elif exc.status == 416:
+                            break
+                        _netdisk_sleep(_backoff(attempt, exc.retry_after))
                     except Exception as exc:  # noqa: BLE001
                         err = exc
-                    if not _sleep_check(0.8 * (attempt + 1)):
-                        return
+                        _netdisk_sleep(_backoff(attempt, None))
                 if err is not None:
-                    with lock:
-                        if not fatal:
-                            fatal.append(f"块 {i} 下载失败：{err}")
-                    stop.set()
+                    # 不在这里判死刑：留在位图里，交给收尾阶段的单连接补漏
+                    q.put(i)
                     return
         finally:
             try:
@@ -7270,11 +7288,63 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
             except OSError:
                 pass
 
-    threads = [threading.Thread(target=_worker, daemon=True) for _ in range(nconn)]
+    threads = [threading.Thread(target=_worker, args=(i,), daemon=True)
+               for i in range(nconn)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
+
+    # ── 3b) 单连接补漏：并发档撞 403 时，一条连接慢慢把剩下的块补齐。
+    #        线上实测单连接几乎不触发限流（每连 ~0.30MB/s），宁可慢也不能缺块。
+    missing = [i for i in range(nblocks) if not done_map[i]]
+    if missing and not stop.is_set():
+        task.add_step("下载文件", "running",
+                      f"并发受限，改为单连接补齐剩余 {len(missing)} 块…")
+        task.log(f"有 {len(missing)} 块在并发阶段未下完（403 {seen403[0]} 次），"
+                 f"转单连接补漏，共 {len(missing)} 块")
+        try:
+            wf2 = open(part, "r+b")
+        except OSError as exc:
+            with lock:
+                if not fatal:
+                    fatal.append(f"打开临时文件失败：{exc}")
+            wf2 = None
+        if wf2 is not None:
+            sess2 = requests.Session()
+            sess2.trust_env = False
+            try:
+                for i in missing:
+                    if stop.is_set() or task.cancel_requested or task.is_finished \
+                            or task.pause_requested:
+                        break
+                    err = None
+                    for attempt in range(6):
+                        try:
+                            _fetch_into(wf2, sess2, i)
+                            err = None
+                            break
+                        except _NetdiskPaused:
+                            break
+                        except _NetdiskHTTPError as exc:
+                            err = exc
+                            if exc.status == 403:
+                                with lock:
+                                    seen403[0] += 1
+                            _netdisk_sleep(_backoff(attempt + 1, exc.retry_after))
+                        except Exception as exc:  # noqa: BLE001
+                            err = exc
+                            _netdisk_sleep(_backoff(attempt + 1, None))
+                    if err is not None:
+                        with lock:
+                            if not fatal:
+                                fatal.append(f"块 {i} 补漏失败：{err}")
+                        break
+            finally:
+                try:
+                    wf2.close()
+                except OSError:
+                    pass
 
     # ── 4) 收尾：取消 / 暂停 / 失败 / 完成
     if task.cancel_requested or task.is_finished:
@@ -7298,12 +7368,22 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
         return
     if fatal or any(v == 0 for v in done_map):
         msg = fatal[0] if fatal else "存在未完成分块"
+        kept_bytes = 0
+        for i in range(nblocks):
+            if done_map[i]:
+                kept_bytes += min(CHUNK, total - i * CHUNK)
+        # 🔴 不再删 .part/位图：一次 403 就把 361MB 的 17% 清掉太亏，
+        #    留着「点重试从断点续」比从头下快得多（且续传时同样只补缺块）。
         task.add_step("下载文件", "error", str(msg)[:200])
-        logger.warning("[netdisk] 百度直链下载失败 task=%s：%s", task.id, msg)
-        part.unlink(missing_ok=True)
-        bmap.unlink(missing_ok=True)
-        store.update(task.id, status="failed", error="网盘下载失败",
-                     hint=_user_error_text())
+        logger.warning("[netdisk] 百度直链下载中断 task=%s：%s（403 共 %d 次，"
+                       "已下 %d/%d 块，保留断点）",
+                       task.id, msg, seen403[0], sum(done_map), nblocks)
+        store.update(task.id, status="failed", error="网盘下载中断",
+                     hint=f"已下载 {kept_bytes/1048576:.0f}MB 保留在断点里，"
+                          f"点「重试」会从断点续传（百度接口返回异常，可能触发风控，"
+                          f"稍等几分钟再试更稳）",
+                     downloaded_bytes=kept_bytes,
+                     progress=round(kept_bytes / total * 100.0, 1) if total else 0.0)
         return
 
     out_name = _netdisk_output_name(task, meta["ct"], meta["url"])
@@ -7320,8 +7400,22 @@ def _download_netdisk_direct(task: DownloadTask, store: TaskStore,
     size = out.stat().st_size
     elapsed = max(time.time() - started, 0.001)
     avg = (size - done_base) / elapsed / 1048576
+    used = max(limit[0], 1)
+    per_conn = avg / used
+    # 水位学习：零 403 说明这档还能再抬，撞过限流就把打折后的档位留作下次起点
+    if seen403[0] == 0 and nconn >= used and used == nconn and used < _NETDISK_CONN_MAX:
+        _NETDISK_CONN_HINT[0] = min(_NETDISK_CONN_MAX, nconn + 8)
+    elif seen403[0] == 0:
+        _NETDISK_CONN_HINT[0] = used
     task.add_step("下载文件", "done", f"输出文件：{out.name}")
-    task.log(f"网盘下载完成：{out.name}（{size} 字节，{nconn} 连接并发，均速 {avg:.2f}MB/s）")
+    task.log(f"网盘下载完成：{out.name}（{size} 字节，{used} 连接并发，"
+             f"均速 {avg:.2f}MB/s，每连 {per_conn:.2f}MB/s）")
+    if per_conn < 0.18:
+        # 单连只有 0.1MB/s 量级 ⇒ 账号不是超会，或线路正被限速；加连接才有用
+        logger.info("[netdisk] 单连速率偏低（%.2fMB/s，%d 连），"
+                    "账号可能非超会或线路限速", per_conn, used)
+        task.log(f"单连速率只有 {per_conn:.2f}MB/s（偏慢）：账号可能不是超会会员，"
+                 f"或这一时段被限速；把超会账号加入账号池能明显变快")
     store.update(task.id, status="completed", progress=100.0, filepath=out,
                  filename=out.name, filesize=size, downloaded_bytes=size,
                  total_bytes=size, speed=0.0, eta=0)
