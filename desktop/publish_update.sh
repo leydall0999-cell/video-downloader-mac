@@ -239,9 +239,19 @@ rm -f "$LATEST_SIG"
 SIGN_PY="$REPO/.build_venv/bin/python"
 [ -x "$SIGN_PY" ] || SIGN_PY="python3"
 SIGN_KEY="${VDL_UPDATE_SIGNING_KEY:-}"
+# 🔴 2026-10-30 修复（发布 1.1.05 时踩到）：未设环境变量时原来只 warn 就继续，
+#    但脚本开头已经 rm 掉本地 .sig ⇒ 上传步骤没有 .sig 可传 ⇒ 线上留着**上一版**的
+#    latest.json.sig，与新清单字节不匹配 ⇒ 客户端 fail-closed 验签必然失败 ⇒ 全员更新卡死。
+#    正确处理：先回退发布机默认密钥路径；仍找不到就**中止发布**，绝不产出无签名清单。
+if [ -z "$SIGN_KEY" ] && [ -f "$HOME/.vdl_update_signing_key.pem" ]; then
+  SIGN_KEY="$HOME/.vdl_update_signing_key.pem"
+  echo "   签名私钥（默认路径）: $SIGN_KEY"
+fi
 if [ -z "$SIGN_KEY" ]; then
-  echo "   ⚠️ 未设置 VDL_UPDATE_SIGNING_KEY，本次发布**不含签名**。"
-  echo "      已启用验签的客户端会拒绝该更新；生成密钥：$SIGN_PY tools/gen_update_signing_key.py"
+  echo "   ✗ 未找到签名私钥（VDL_UPDATE_SIGNING_KEY / ~/.vdl_update_signing_key.pem 都没有）。"
+  echo "      客户端强制验签：无签名清单会被全部拒收，线上旧 .sig 又会与新清单不匹配。"
+  echo "      生成密钥：$SIGN_PY tools/gen_update_signing_key.py"
+  exit 1
 elif [ ! -f "$SIGN_KEY" ]; then
   echo "   ✗ VDL_UPDATE_SIGNING_KEY 指向的文件不存在：$SIGN_KEY"
   exit 1
