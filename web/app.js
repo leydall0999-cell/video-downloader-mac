@@ -23237,6 +23237,40 @@ el.dwVidPlayer.hidden = true;
     // 口径「站点×周」（2026-10-23 起，原按天）：同一站点同一自然周（周一为界）
     // 多次失败只计 1 次需求，重试免疫；不同周重复出现照计（持续有人要的站排前面）。
     // 窗口 12 周：按周计数窗口太短会全是 1 分，看不出持续性。
+    // 已处理过的站点：需求榜是 append-only 的历史账，修好了记录也不会自己消失，
+    // 不标就永远挂着「待补提取器」，看着像还没人管。
+    // since = 该修复上线日期；最近一条需求早于 since ⇒ 修完没再复发 ⇒ 已解决，
+    // 晚于 since ⇒ 修复后又有人要 ⇒ 标「已修·复发」（这条比绿标更该看）。
+    // 口径与网页后台 web/admin/index.html 的 RESOLVED 保持一致，改一处要同步改另一处。
+    const DEMAND_RESOLVED = [
+      {
+        hosts: ['pan.baidu.com', 'pan.quark.cn', 'aliyundrive.com', '115.com',
+          'cloud.189.cn', 'yun.139.com', 'share.weiyun.com', 'pan.xunlei.com',
+          '123pan.com', 'lanzou.com'],
+        since: '2026-10-31',
+        label: '已解决',
+        note: '已改为引导到「网盘」页粘贴',
+      },
+      {
+        hosts: ['xiaohongshu.com'],
+        since: '2026-11-01',
+        label: '已解决',
+        note: '已提示改用分享→复制链接',
+      },
+      {
+        hosts: ['shu-watanabe.com'],
+        since: '2026-11-01',
+        label: '已解决',
+        note: '付费会员站，已明确不提供',
+      },
+    ].map((r) => ({ ...r, sinceTs: new Date(r.since + 'T00:00:00').getTime() / 1000 }));
+    // 本地零点：不能用 Date.parse(since)（走 UTC，比本地晚 8 小时，会把修复当天
+    // 凌晨的需求误判成修复前）
+    const demandResolvedHit = (host) => {
+      const h = String(host || '').toLowerCase();
+      if (!h) return null;
+      return DEMAND_RESOLVED.find((r) => r.hosts.some((p) => h === p || h.endsWith('.' + p))) || null;
+    };
     const loadResolveDemand = async () => {
       const box = $('adminDemandBody');
       if (!box) return;
@@ -23251,13 +23285,19 @@ el.dwVidPlayer.hidden = true;
         const catName = (c) => (c === 'pending_extractor' ? '已收录缺提取器'
           : c === 'unsupported_platform' ? '未收录新站' : (c || '-'));
         box.innerHTML =
-          '<table><thead><tr><th>站点</th><th>需求周数</th><th>记录数</th><th>分类</th><th>最近一次</th><th>样例链接</th></tr></thead><tbody>' +
+          '<table><thead><tr><th>站点</th><th>状态</th><th>需求周数</th><th>记录数</th><th>分类</th><th>最近一次</th><th>样例链接</th></tr></thead><tbody>' +
           rows.slice(0, 50).map((x) => {
             const cats = Object.entries(x.categories || {}).map(([c, n]) => `${catName(c)}×${n}`).join('，') || '-';
             const last = x.last_ts ? new Date(x.last_ts * 1000).toLocaleDateString() : '-';
             const wc = (x.weeks_count != null ? x.weeks_count : x.days_count) || 0;
             const wkTip = (x.weeks || []).length ? `命中周（周一）：${(x.weeks || []).join('、')}` : '';
-            return `<tr><td><b>${esc(x.host)}</b></td><td title="${esc(wkTip)}">${wc}</td><td>${x.total}</td>` +
+            const hit = demandResolvedHit(x.host);
+            const st = (hit && Number(x.last_ts || 0) <= hit.sinceTs)
+              ? `<span class="admin-chip is-green" title="${esc(hit.note + '（' + hit.since + '）')}">${esc(hit.label)}</span>`
+              : (hit
+                ? `<span class="admin-chip is-gold" title="${esc(hit.note + '之后又有人要，说明没修好')}">已修·复发</span>`
+                : '<span class="admin-chip is-red">未解决</span>');
+            return `<tr><td><b>${esc(x.host)}</b></td><td>${st}</td><td title="${esc(wkTip)}">${wc}</td><td>${x.total}</td>` +
               `<td>${esc(cats)}</td><td>${last}</td>` +
               `<td title="${esc(x.last_url || '')}" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((x.last_url || '-').slice(0, 60))}</td></tr>`;
           }).join('') + '</tbody></table>';
