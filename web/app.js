@@ -22919,6 +22919,7 @@ el.dwVidPlayer.hidden = true;
     const gateMsg = $('adminGateMsg');
     const gateClose = $('adminGateClose');
     const logoutBtn = $('adminLogoutBtn');
+    const webConsoleBtn = $('adminWebConsoleBtn');
 
     const userTable = $('adminUserTable');
     const userCount = $('adminUserCount');
@@ -25853,6 +25854,13 @@ el.dwVidPlayer.hidden = true;
 
     // 关闭 / 退出（后台使用登录态 user token，退出仅关闭面板，不清除登录）
     if (logoutBtn) logoutBtn.addEventListener('click', closeAdmin);
+    // 网页后台（2026-11-01）：平台健康 / 自动修复派单 / 会员墙拦截只存在于网页后台。
+    // 不做 App 内第五页签 —— 取那些数据要加本机接口（冻进二进制）⇒ 必须发版；
+    // 这里一键交给系统浏览器（WKWebView 拦 window.open，故走 _openExternalUrl 原生桥）。
+    // 带 #platform-health：网页后台加载完自动滚到该面板，省掉「还要往下翻两屏」。
+    if (webConsoleBtn) webConsoleBtn.addEventListener('click', () => {
+      _openExternalUrl('https://hanyuxz.top/admin/#platform-health');
+    });
     if (gateClose) gateClose.addEventListener('click', closeAdmin);
     if (sTabAdmin) sTabAdmin.addEventListener('click', openAdmin);
     if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) closeAdmin(); });
