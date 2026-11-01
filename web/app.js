@@ -20177,8 +20177,8 @@ el.dwVidPlayer.hidden = true;
     if (!el.authIdent || !el.authPw) return;
     const ident = (el.authIdent.value || '').trim();
     const pw = el.authPw.value || '';
-    if (!ident) { _authMsg('请输入邮箱或手机号', true); return; }
-    if (!_isValidIdentifier(ident)) { _authMsg('账号需为有效邮箱（支持 QQ/Google 邮箱）或手机号', true); return; }
+    if (!ident) { _authMsg('请输入邮箱', true); return; }
+    if (!_isValidIdentifier(ident)) { _authMsg('账号需为有效邮箱（支持 QQ/163/谷歌邮箱）', true); return; }
     if (pw.length < 6) { _authMsg('密码至少 6 位', true); return; }
     if (authMode === 'register') {
       const pw2 = el.authPw2 ? el.authPw2.value : '';
@@ -20435,15 +20435,15 @@ el.dwVidPlayer.hidden = true;
   async function sendForgetCode() {
     if (!el.forgetIdent) return;
     const ident = (el.forgetIdent.value || '').trim();
-    if (!ident) { _forgetMsg('请输入邮箱或手机号', true); if (el.forgetIdent) el.forgetIdent.focus(); return; }
-    if (!_isValidIdentifier(ident)) { _forgetMsg('账号需为有效邮箱（支持 QQ/Google 邮箱）或手机号', true); return; }
+    if (!ident) { _forgetMsg('请输入邮箱', true); if (el.forgetIdent) el.forgetIdent.focus(); return; }
+    if (!_isValidIdentifier(ident)) { _forgetMsg('账号需为有效邮箱（支持 QQ/163/谷歌邮箱）', true); return; }
     _forgetMsg('发送中…');
     try {
       const r = await request('/api/auth/reset-code', {
         method: 'POST', body: JSON.stringify({ identifier: ident }),
       });
       if (r && r.ok) {
-        _forgetMsg('验证码已发送，请查收邮箱/手机');
+        _forgetMsg('验证码已发送，请查收邮箱');
         if (r.dev_code && el.forgetDevNote) {
           el.forgetDevNote.hidden = false;
           // self_serve：手机号找回（短信通道未接入）→ 直接在本机显示；
