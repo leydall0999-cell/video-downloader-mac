@@ -6,6 +6,7 @@
 handler 原样搬入、零改引用。路由用 @router.get/post 挂载，已在 app.py 末尾 include。
 """
 import app
+import atomic_io
 import hmac
 import os
 import object_store
@@ -857,11 +858,19 @@ def download_file(task_id: str, request: app.Request, download: int=0) -> app.Re
         except OSError:
             _stale = True
         if _stale:
-            _tmp = _zip.with_name(_zip.name + ".tmp")
-            with zipfile.ZipFile(_tmp, 'w', zipfile.ZIP_STORED) as _z:
-                for _p in _imgs:
-                    _z.write(_p, arcname=_p.name)
-            _tmp.replace(_zip)
+            # 唯一临时名（同目录）：两个窗口同时点保存时互不截断，写完再 rename 到目标。
+            # 固定名 `.tmp` 会被 atomic_io 的守卫测试判为「并发写者互相截断」缺陷。
+            _tmp = atomic_io.unique_temp_path(_zip)
+            try:
+                with zipfile.ZipFile(_tmp, 'w', zipfile.ZIP_STORED) as _z:
+                    for _p in _imgs:
+                        _z.write(_p, arcname=_p.name)
+                _tmp.replace(_zip)
+            finally:
+                try:
+                    _tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
         from starlette.responses import FileResponse as _FileResponse
         import urllib.parse as _up
         _zip_name = f"{task.filepath.name}.zip"
