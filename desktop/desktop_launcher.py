@@ -16,6 +16,7 @@ import socket
 import signal
 import subprocess
 import threading
+import re
 from pathlib import Path
 
 # 🔴 2026-10-18：import webview（连带 pythonnet / .NET runtime 初始化）必须尽早。
@@ -2559,7 +2560,21 @@ def _kill_douyin_engine() -> None:
                 except Exception:
                     pass
             return
-        for pat in ("douyin-cdp-profile", "chrome-headless-shell"):
+        # 🔴 只按 `--user-data-dir=` 精确匹配，绝不裸 `pkill -f chrome-headless-shell`：
+        #    后者会命中**任何**命令行里带这串字的进程 —— 实测把自己的验证命令
+        #    （`ps | grep chrome-headless-shell`）一起 SIGTERM 掉了；用户侧同理，
+        #    终端里 grep 过源码、编辑器开着这个文件，都可能被误杀。
+        #    浏览器进程恒带 `--user-data-dir=<PROFILE>`（见 douyin_cdp._launch），
+        #    所以用 profile 路径/名字匹配既是唯一标识，也不会碰到别的进程。
+        profile = (
+            os.environ.get("VDL_DOUYIN_CDP_PROFILE")
+            or os.path.join(os.path.expanduser("~"), ".video-downloader", "douyin-cdp-profile")
+        )
+        patterns = [
+            "--user-data-dir=%s" % profile,
+            "--user-data-dir=.*douyin-cdp-profile",  # 兜底：用户改过 profile 路径
+        ]
+        for pat in patterns:
             try:
                 # 冻结包从 Finder 启动时 PATH 可能极简，用绝对路径优先，失败再退回裸命令。
                 for exe in ("/usr/bin/pkill", "pkill"):
@@ -2573,17 +2588,26 @@ def _kill_douyin_engine() -> None:
             except Exception:
                 pass
         # 兜底：pkill 不可用/没匹配到时，自己枚举进程再杀（退出路径上不能有「算了」）。
+        # 判据同样要求「--user-data-dir= 且 douyin-cdp-profile 同时出现在同一条命令行」。
         try:
             out = subprocess.run(["/bin/ps", "-axo", "pid=,command="],
                                  capture_output=True, text=True, timeout=5).stdout
+            marker = re.compile(r"--user-data-dir=\S*douyin-cdp-profile")
             killed = 0
             for line in out.splitlines():
-                if "douyin-cdp-profile" in line or "chrome-headless-shell" in line:
-                    try:
-                        os.kill(int(line.split(None, 1)[0]), signal.SIGKILL)
-                        killed += 1
-                    except Exception:
-                        pass
+                if not marker.search(line):
+                    continue
+                try:
+                    pid = int(line.split(None, 1)[0])
+                except (ValueError, IndexError):
+                    continue
+                if pid in (os.getpid(), os.getppid()):
+                    continue
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    killed += 1
+                except Exception:
+                    pass
             _launch_log(f"退出清理：内嵌 Chromium 已收尾（ps 兜底杀了 {killed} 个）")
         except Exception as _e:
             _launch_log(f"退出清理失败：{type(_e).__name__}: {_e}")

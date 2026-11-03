@@ -1414,6 +1414,12 @@ run_one test_cookie_share_host_map.py
 # 本守卫钉死：预检恒 True、渲染链路无降速模式、app.py 慢放开关默认关。
 run_one test_commentary_never_slowdown.py
 
+# 内嵌 Chromium「退出必带走」守卫（2026-11-03）：1.1.08 内嵌后退出 App 仍留 6 个
+# chrome-headless-shell。第一版修复挂 pywebview 的 closing 事件——**从不触发**
+# （Cmd+Q/Dock Quit 走 applicationShouldTerminate_，直接 return YES 就终止进程）。
+# 挂错事件不报错、验收又易假通过（App 主进程归零≠浏览器子进程归零），故做源码守卫。
+run_one test_douyin_engine_exit_cleanup.py
+
 echo ""
 echo "========================================="
 echo "  通过: $PASS   失败: $FAIL"
