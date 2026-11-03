@@ -3899,6 +3899,8 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
 }
 
 /* 卡片：与「字幕样式卡」同风格（强调色淡底 + 细边），整行独占 */
+/* 🔴 2026-11-03：右列本来就窄，原生 select 不肯收缩会戳穿卡片右边界（实测溢出）；
+   字段一律允许收缩、select 封顶 100%，卡片兜底 overflow:hidden。 */
 .com-feather-card {
   grid-column: 1 / -1;
   background: color-mix(in srgb, var(--accent) 4%, var(--surface));
@@ -3906,8 +3908,13 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
   border-radius: var(--radius-sm);
   padding: .55rem .7rem .6rem;
   display: flex; flex-direction: column; gap: .5rem; min-width: 0;
+  overflow: hidden;
 }
-.com-feather-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+/* summary 用 display:flex 会让 WebKit 把默认 ▾ 挤成孤行 ⇒ 干掉原生标记，自绘折叠箭头 */
+.com-feather-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; list-style: none; min-width: 0; }
+.com-feather-head::-webkit-details-marker { display: none; }
+.com-feather-head::after { content: '▾'; margin-left: auto; color: var(--text-mute); font-size: .72rem; }
+.com-feather-card[open] .com-feather-head::after { content: '▴'; }
 .com-feather-title { font-size: .84rem; font-weight: 700; color: var(--text); }
 .com-feather-state {
   font-size: .72rem; padding: .1rem .42rem; border-radius: 999px;
@@ -3917,12 +3924,13 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
 .com-feather-state.is-ok { background: color-mix(in srgb, #16a34a 16%, transparent); color: #15803d; }
 .com-feather-state.is-miss { background: color-mix(in srgb, #d97706 16%, transparent); color: #b45309; }
 .com-feather-state.is-busy { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
-.com-feather-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.1rem; }
-.com-feather-field { display: flex; align-items: center; gap: .38rem; min-width: 0; }
+.com-feather-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.1rem; min-width: 0; max-width: 100%; }
+.com-feather-field { display: flex; align-items: center; gap: .38rem; min-width: 0; max-width: 100%; flex: 0 1 auto; }
 .com-feather-label { font-size: .78rem; color: var(--text-mute); white-space: nowrap; }
 .com-feather-select {
   font-size: .78rem; padding: .28rem .4rem; border-radius: 5px;
   border: 1px solid var(--line); background: var(--bg, #fff); color: var(--text);
+  max-width: 100%; min-width: 0;
 }
 .com-feather-num {
   width: 62px; font-size: .78rem; text-align: center; font-family: monospace;
