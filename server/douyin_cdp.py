@@ -653,6 +653,38 @@ def _restore_cookie_snapshot() -> int:
     return 0
 
 
+# ── UA 伪装（2026-11-03）─────────────────────────────────────────────────────
+# 🔴 无头浏览器默认 UA 带 `HeadlessChrome/`，抖音据此直接判机器人：详情接口恒回
+# `S403`（在页面内 fetch 也一样，签名/指纹都正常）。实测三种形态跑同一段代码：
+#   有头            → 1.2s 拿到 62KB JSON
+#   headless=new    → 4.7s 死循环 403
+#   headless=new+真UA → 1.4s 拿到 62KB JSON
+# 所以无头必须把 UA 换成**同版本**真 Chrome 的 UA。版本号从浏览器自身 --version
+# 取，避免「引擎 156 却自称 120」这种更刺眼的自相矛盾（结果进程内缓存，只跑一次）。
+_UA_CACHE: dict[str, str] = {}
+
+
+def _real_ua() -> str:
+    key = sys.platform
+    if key in _UA_CACHE:
+        return _UA_CACHE[key]
+    ver = "156.0.8078.80"
+    try:
+        out = subprocess.run([CHROME, "--version"], capture_output=True,
+                             text=True, timeout=5).stdout
+        m = re.search(r"\d+\.\d+\.\d+\.\d+", out or "")
+        if m:
+            ver = m.group(0)
+    except Exception:
+        pass
+    plat = ("(Windows NT 10.0; Win64; x64)" if sys.platform.startswith("win")
+            else "(Macintosh; Intel Mac OS X 10_15_7)")
+    ua = ("Mozilla/5.0 %s AppleWebKit/537.36 (KHTML, like Gecko) "
+          "Chrome/%s Safari/537.36" % (plat, ver))
+    _UA_CACHE[key] = ua
+    return ua
+
+
 def _headless_enabled() -> bool:
     """解析默认走无头 Chrome（零窗口，用户完全无感）。
 
@@ -681,7 +713,8 @@ def _ensure_mode(headless: bool) -> None:
 
     形态不符时先落 Cookie 快照再重启（抖音登录 Cookie 是会话级的，关了就没）。
     """
-    want = ["--headless=new"] if headless else []
+    # 无头形态必须同时伪装 UA（见 _real_ua 注释：带 HeadlessChrome 会被抖音判死）
+    want = ["--headless=new", "--user-agent=" + _real_ua()] if headless else []
     cur = _instance_is_headless()
     if cur is not None and cur == headless and _page_targets():
         _EXTRA_FLAGS[:] = want
@@ -918,6 +951,11 @@ def _resolve_unlocked(url: str, timeout: int = 90) -> dict:
     headless = _headless_enabled()
     try:
         _ensure_mode(headless=headless)
+        # 快路优先：详情接口 ~1s 拿到最高档无水印直链（见 _detail 注释）。
+        # 失败（图文 / 私密 / 风控）静默回退到抓流老路，用户无感。
+        data = _detail(url, timeout=min(40, max(15, timeout // 2)))
+        if data:
+            return data
         return _capture(url, timeout)
     except ResolveError as e:
         # 兜底：无头实例被抖音识别/拦截（极少见）时，退回有头可见实例再抓一次。
@@ -930,6 +968,197 @@ def _resolve_unlocked(url: str, timeout: int = 90) -> dict:
             except Exception:
                 raise e from None
         raise
+
+
+# ── 详情接口快路（2026-11-03）───────────────────────────────────────────────
+# 老路径是「等页面真的开始拉视频流，再从网络事件里抄地址」：慢（6~10s），而且只能
+# 拿到播放器**当前选的那一档**（常见 540/720），时长/封面也拿不到（duration=None）。
+# 抖音的详情接口一次给出全部码率档位（实测 11~20 档，最高 1080P）、真实时长、封面、
+# 无水印源，接口本身 0.25s 就返回。
+#
+# 🔴 但**不能自己发这个请求**：裸 HTTP 调 /aweme/v1/web/aweme/detail/ 恒被 Argus
+# 拦成 403「Uifid Not Found」——缺的是 a_bogus 签名（前端 JS 现算，且必须与设备
+# 指纹同源）。所以让**页面自己发**：fetch 由页面 JS 触发，签名自动带上，我们只把
+# JSON 取回来。这是「用真浏览器」和「用接口」的结合点，不需要逆向签名算法。
+_AWEME_ID_RE = re.compile(r"/(?:video|note|slides)/(\d{15,})")
+
+
+def _aweme_id(url: str) -> str:
+    """从各种抖音链接形态里抠作品 ID（分享长链 / ?modal_id= / 短链展开后的长链）。"""
+    m = _AWEME_ID_RE.search(url or "")
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&]modal_id=(\d{15,})", url or "")
+    return m.group(1) if m else ""
+
+
+def _pick_track(aweme: dict) -> dict | None:
+    """从 aweme_detail 里挑一条最好的直链（默认封顶 1080P）。
+
+    抖音的档位名形如 `normal_1080_0` / `low_540_0`，档位对象本身**不带**
+    width/height（实测是 None），只有 `play_addr` 里带真实像素（竖屏 1080P 是
+    1080x1440）。所以两套尺寸都要留：`gh` 是档位标签（短边，用来判封顶），
+    `w/h` 是真实像素（用来显示）。🔴 不能拿真实长边（1440）去判 1080P 上限，
+    否则竖屏 1080P 会被误判超限、全部降档。
+    """
+    v = aweme.get("video") or {}
+    cands: list[dict] = []
+    for it in (v.get("bit_rate") or []):
+        pa = it.get("play_addr") or {}
+        urls = [u for u in (pa.get("url_list") or []) if u]
+        if not urls:
+            continue
+        gear = it.get("gear_name") or ""
+        m = re.search(r"(\d{3,4})", gear)
+        cands.append({
+            "urls": urls,
+            "w": int(pa.get("width") or 0),
+            "h": int(pa.get("height") or 0),
+            "gh": int(m.group(1)) if m else 0,
+            "br": int(it.get("bit_rate") or 0),
+            "gear": gear,
+        })
+    if not cands:
+        # 极少数老视频没有 bit_rate，退到 play_addr 单条
+        pa = v.get("play_addr") or {}
+        urls = [u for u in (pa.get("url_list") or []) if u]
+        if not urls:
+            return None
+        return {"urls": urls, "w": int(pa.get("width") or 0),
+                "h": int(pa.get("height") or 0), "gh": 0, "br": 0, "gear": ""}
+    capped = [c for c in cands if c["gh"] and c["gh"] <= 1080]
+    pool = capped or cands
+    pool.sort(key=lambda c: (c["gh"], c["br"]), reverse=True)
+    return pool[0]
+
+
+_DETAIL_JS = """(async () => {
+  const q = new URLSearchParams({device_platform:'webapp',aid:'6383',
+    channel:'channel_pc_web',pc_client_type:'1',version_code:'170400',
+    version_name:'17.4.0',cookie_enabled:'true',platform:'PC',downlink:'10',
+    aweme_id:'%s'});
+  try {
+    const r = await fetch('/aweme/v1/web/aweme/detail/?' + q.toString(),
+                          {credentials:'include'});
+    if (r.status !== 200) return 'S' + r.status;
+    const t = await r.text();
+    return t.indexOf('aweme_detail') > 0 ? t : 'BAD';
+  } catch (e) { return 'ERR'; }
+})()"""
+
+
+def _eval_js(ws, mid: int, expr: str, wait: float = 12.0):
+    """在已挂接的标签页里跑一段 JS 并取回值（失败/超时返回 None）。"""
+    try:
+        ws.send_text(json.dumps({"id": mid, "method": "Runtime.evaluate",
+                                 "params": {"expression": expr,
+                                            "awaitPromise": True,
+                                            "returnByValue": True}}))
+    except Exception:
+        return None
+    deadline = time.time() + wait
+    while time.time() < deadline:
+        try:
+            _, raw = ws.recv_msg()
+        except Exception:
+            return None
+        try:
+            m = json.loads(raw)
+        except ValueError:
+            continue
+        if m.get("id") == mid:
+            return (m.get("result", {}).get("result") or {}).get("value")
+    return None
+
+
+def _detail(url: str, timeout: int = 40) -> dict | None:
+    """快路：在抖音页面上下文里调详情接口，拿最高档无水印直链。
+
+    成功返回与 `_capture` 同构的 data dict；失败（图文 / 私密 / 风控 / 超时）
+    返回 None，由调用方回退到抓流。**这里绝不抛错** —— 快路失败不该让用户看到
+    报错，老路还有机会。
+    """
+    uid = _aweme_id(url)
+    if not uid:
+        return None
+    target_id = None
+    ws = None
+    try:
+        target_id = _create_target("https://www.douyin.com/")
+        ws_url = None
+        for _ in range(30):
+            ws_url = _target_ws(target_id)
+            if ws_url:
+                break
+            time.sleep(0.3)
+        if not ws_url:
+            return None
+        ws = _WSClient(ws_url)
+        try:
+            ws.send_text(json.dumps({"id": 1, "method": "Runtime.enable"}))
+        except Exception:
+            pass
+        # 首屏的 __ac_nonce 挑战没跑完时接口会 403，隔几百毫秒就通了，
+        # 所以立刻开始试、失败 400ms 后重来（典型 1.2s 内拿到）。
+        txt = None
+        mid = 10
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            mid += 1
+            v = _eval_js(ws, mid, _DETAIL_JS % uid)
+            if isinstance(v, str) and v.startswith("{"):
+                txt = v
+                break
+            time.sleep(0.4)
+        if not txt:
+            return None
+        aw = (json.loads(txt) or {}).get("aweme_detail") or {}
+        if not aw:
+            return None
+        tr = _pick_track(aw)
+        if not tr:
+            return None
+        vinfo = aw.get("video") or {}
+        h = tr.get("h") or int(vinfo.get("height") or 0) or 720
+        w = tr.get("w") or int(vinfo.get("width") or 0) or (h * 9 // 16)
+        dur = aw.get("duration")
+        try:
+            dur_s = round(int(dur) / 1000.0, 3) if dur else None
+        except Exception:
+            dur_s = None
+        title = (aw.get("desc") or "").strip()
+        _log("详情接口命中[%s] %dx%d" % (tr.get("gear") or "?", w, h))
+        # 抓流成功后顺手刷新登录 Cookie 快照（登录 Cookie 可能刚被抖音续期）
+        try:
+            _save_cookie_snapshot()
+        except Exception:
+            pass
+        return {
+            "video_url": tr["urls"][0],
+            "audio_url": "",
+            "video_has_audio": True,
+            "video_id": str(aw.get("aweme_id") or uid),
+            "title": (title[:120] if title else "抖音视频"),
+            "duration": dur_s,
+            "thumbnail": ((vinfo.get("cover") or {}).get("url_list") or [""])[0],
+            "webpage_url": url,
+            "height": h,
+            "width": w,
+        }
+    except Exception as _e:
+        _log("详情接口未命中：%s: %s" % (type(_e).__name__, str(_e)[:80]))
+        return None
+    finally:
+        if ws is not None:
+            try:
+                ws.sock.close()
+            except Exception:
+                pass
+        if target_id:
+            try:
+                _close_target(target_id)
+            except Exception:
+                pass
 
 
 def _capture(url: str, timeout: int = 90) -> dict:

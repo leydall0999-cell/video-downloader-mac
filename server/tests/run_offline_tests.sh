@@ -1419,6 +1419,7 @@ run_one test_commentary_never_slowdown.py
 # （Cmd+Q/Dock Quit 走 applicationShouldTerminate_，直接 return YES 就终止进程）。
 # 挂错事件不报错、验收又易假通过（App 主进程归零≠浏览器子进程归零），故做源码守卫。
 run_one test_douyin_engine_exit_cleanup.py
+run_one test_douyin_detail_fastpath.py
 
 echo ""
 echo "========================================="
