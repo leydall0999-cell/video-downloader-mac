@@ -16126,6 +16126,18 @@ el.dwVidPlayer.hidden = true;
     st.idx = pos <= sp[0][1] ? 0 : pos <= sp[1][1] ? 1 : 2;
     input.setSelectionRange(sp[st.idx][0], sp[st.idx][1]);
   };
+  // 🔴 2026-11-03 段式输入接管了这两个框的全部按键（keydown 全 preventDefault +
+  // 程序化写值）⇒ 浏览器的 dirty 位置不上，**永远不会发 change** ⇒ 挂在 change 上的
+  // 「重跑预检/计费预估」永远不触发，积分提示停留在整片口径（用户实测误导：
+  // 明明只做 0:01:30~0:10:00，还显示「按 2 个半小时计」）。
+  // 每次程序化写值后手动走：同步滑块 + 片长文案 + 防抖 600ms 重跑预检
+  //（防抖：连续敲数字时别一个键打一次后端）。
+  const comSegCommit = (input) => {
+    syncDramaSlider(input);
+    updateTrimDurationText();
+    clearTimeout(input._comSegDeb);
+    input._comSegDeb = setTimeout(() => document.dispatchEvent(new CustomEvent('vdl:com-precheck-refresh')), 600);
+  };
   const comSegKeys = (input) => {
     // 🔴 2026-11-03 二修：100ms 时间窗没压住（用户实测 2→22、3→33）⇒ 双发间隔能超过
     // 100ms。改「keyup 判据」为主：一条物理按键只伴随一条 keyup；同键 keydown 在上一条
@@ -16157,6 +16169,7 @@ el.dwVidPlayer.hidden = true;
       segs[st.idx] = Math.min(cur, COM_SEG_CAP[st.idx]);
       input.value = comSegJoin(segs);
       input._comSegOfficial = input.value;
+      comSegCommit(input);
       selectSeg();
       return;
     }
@@ -16174,6 +16187,7 @@ el.dwVidPlayer.hidden = true;
         segs[st.idx] = Math.max(0, Math.min(COM_SEG_CAP[st.idx], segs[st.idx] + dir));
         input.value = comSegJoin(segs);
         input._comSegOfficial = input.value;
+        comSegCommit(input);
       }
       st.fresh = true;
       selectSeg();
@@ -16184,6 +16198,7 @@ el.dwVidPlayer.hidden = true;
       segs[st.idx] = 0;
       input.value = comSegJoin(segs);
       input._comSegOfficial = input.value;
+      comSegCommit(input);
       st.fresh = true;
       selectSeg();
       return;
