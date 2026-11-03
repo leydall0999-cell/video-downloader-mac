@@ -16111,9 +16111,18 @@ el.dwVidPlayer.hidden = true;
     st.idx = pos <= sp[0][1] ? 0 : pos <= sp[1][1] ? 1 : 2;
     input.setSelectionRange(sp[st.idx][0], sp[st.idx][1]);
   };
-  const comSegKeydown = (input) => (ev) => {
-    const st = input._comSeg || (input._comSeg = { idx: 0, fresh: true });
-    const segs = comSegValue(input.value);
+  const comSegKeydown = (input) => {
+    // 🔴 2026-11-03 实测：一次按键会触发两次 keydown（输入法/WebView 双发），按住稍久
+    // 还会触发系统自动重复 → 「24」被叠成「44」。修法：忽略 repeat 事件 + 同键 100ms
+    // 内视为同一次按键只认第一次（人手同键再按不可能快过 100ms）。
+    let _lastKey = '', _lastAt = 0;
+    return (ev) => {
+      if (ev.repeat) return;
+      const _now = Date.now();
+      if (ev.key === _lastKey && _now - _lastAt < 100) { _lastAt = _now; return; }
+      _lastKey = ev.key; _lastAt = _now;
+      const st = input._comSeg || (input._comSeg = { idx: 0, fresh: true });
+      const segs = comSegValue(input.value);
     const selectSeg = () => {
       const sp = comSegLayout(input.value);
       input.setSelectionRange(sp[st.idx][0], sp[st.idx][1]);
@@ -16158,6 +16167,7 @@ el.dwVidPlayer.hidden = true;
     }
     // 拦掉字母等无关单字符，避免把固定格式敲坏；Tab/Enter 放行走 change 归一
     if (ev.key.length === 1 && !ev.metaKey && !ev.ctrlKey && !ev.altKey) ev.preventDefault();
+    };
   };
   [el.comDramaStart, el.comDramaEnd].forEach((inp) => {
     if (!inp) return;
