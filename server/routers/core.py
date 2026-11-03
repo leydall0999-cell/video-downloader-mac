@@ -837,6 +837,47 @@ def download_file(task_id: str, request: app.Request, download: int=0) -> app.Re
     task = app._require_owned_task(task_id, request)
     if task.status != 'completed' or not task.filepath or (not task.filepath.exists()):
         raise app.HTTPException(status_code=409, detail='文件尚未准备好')
+    # 抖音图文（多图作品）：成品是**文件夹**。FileResponse 对目录会抛
+    # IsADirectoryError → 500，所以这里就地打个 zip 再返回。
+    # zip 落在临时目录（不污染 ~/Downloads），同一任务重复保存直接复用缓存；
+    # ZIP_STORED 不压缩——图片本身就是压缩格式，再压只浪费时间。
+    if task.filepath.is_dir():
+        import tempfile
+        import zipfile
+        from pathlib import Path as _Path
+        _imgs = sorted(
+            p for p in task.filepath.iterdir()
+            if p.is_file() and not p.name.startswith('.') and not p.name.endswith('.part')
+        )
+        if not _imgs:
+            raise app.HTTPException(status_code=409, detail='该图文的图片已过期，请重新下载')
+        _zip = _Path(tempfile.gettempdir()) / f"vdl_gallery_{task_id}.zip"
+        try:
+            _stale = _zip.stat().st_mtime < max(p.stat().st_mtime for p in _imgs)
+        except OSError:
+            _stale = True
+        if _stale:
+            _tmp = _zip.with_name(_zip.name + ".tmp")
+            with zipfile.ZipFile(_tmp, 'w', zipfile.ZIP_STORED) as _z:
+                for _p in _imgs:
+                    _z.write(_p, arcname=_p.name)
+            _tmp.replace(_zip)
+        from starlette.responses import FileResponse as _FileResponse
+        import urllib.parse as _up
+        _zip_name = f"{task.filepath.name}.zip"
+        _q = _up.quote(_zip_name)
+        # Content-Disposition 的 filename= 只能是 ASCII；纯中文标题 encode 后会剩
+        # 一堆 `_# ` 之类的残渣（实测 `"_# #steam.zip"`），看着像坏文件。宁可给
+        # 一个干净的通用名，反正所有现代客户端都走 filename*（UTF-8）。
+        _ascii = _zip_name.encode('ascii', 'ignore').decode().strip()
+        if not re.search(r'[A-Za-z0-9]', _ascii):
+            _ascii = 'gallery.zip'
+        return _FileResponse(
+            path=_zip,
+            media_type='application/zip',
+            headers={'Content-Disposition':
+                     f"attachment; filename=\"{_ascii}\"; filename*=UTF-8''{_q}"},
+        )
     _ext = task.filepath.suffix.lower()
     _mt = {'.mp4': 'video/mp4', '.webm': 'video/webm', '.mkv': 'video/x-matroska', '.m4a': 'audio/mp4', '.mp3': 'audio/mpeg'}.get(_ext, 'application/octet-stream')
     # 图片下载（kind=image，2026-10-12 P0）：按扩展名补图片 media type，

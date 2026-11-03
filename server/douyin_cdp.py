@@ -992,6 +992,35 @@ def _aweme_id(url: str) -> str:
     return m.group(1) if m else ""
 
 
+def _gallery_images(aweme: dict) -> list[dict]:
+    """图文作品（多图 / 图集）的图片清单；非图文返回空列表。
+
+    🔴 图文作品 `aweme_type=68`，**同时也带 `video.play_addr`** —— 那是抖音把几张图
+    串成幻灯片配 BGM 合成的 720×720 视频。若直接按视频处理，用户粘图文链接会下到
+    一个「幻灯片视频」而不是图片（2026-11-03 实测就是这个行为）。所以必须先判图文。
+
+    图片地址形态（实测）：
+      https://p3-pc-sign.douyinpic.com/tos-cn-p-0015/<hash>~tplv-dy-aweme-images:q75.webp?<签名>
+    - `url_list` 给 3 条同源备用，任意一条可用；
+    - **不需要 Referer**（与视频直链不同，实测裸下 200）；
+    - 去掉 `~tplv-...` 转码段或换成 `.jpeg` **一律 403** —— 签名把转码参数一起绑了，
+      拿不到「原始无损」，只有网页同版 q75 webp。不要再试这条路。
+    """
+    out: list[dict] = []
+    for im in (aweme.get("images") or []):
+        if not isinstance(im, dict):
+            continue
+        urls = [u for u in (im.get("url_list") or []) if u]
+        if not urls:
+            continue
+        out.append({
+            "urls": urls,
+            "w": int(im.get("width") or 0),
+            "h": int(im.get("height") or 0),
+        })
+    return out
+
+
 def _pick_track(aweme: dict) -> dict | None:
     """从 aweme_detail 里挑一条最好的直链（默认封顶 1080P）。
 
@@ -1115,6 +1144,35 @@ def _detail(url: str, timeout: int = 40) -> dict | None:
         aw = (json.loads(txt) or {}).get("aweme_detail") or {}
         if not aw:
             return None
+        # 图文作品先判：它也有 video.play_addr（抖音合成的幻灯片视频），
+        # 按视频走会莫名其妙下一个 720×720 的视频而不是图片。
+        gal = _gallery_images(aw)
+        if gal:
+            title = (aw.get("desc") or "").strip()
+            first = gal[0]
+            _log("图文作品命中[%d 张] 首图 %dx%d" % (len(gal), first.get("w") or 0, first.get("h") or 0))
+            try:
+                _save_cookie_snapshot()
+            except Exception:
+                pass
+            return {
+                "is_gallery": True,
+                # gallery 保留每条图片的全部备用地址（实测每张 3 条同源），
+                # 单条下载失败时下载层换源重试；images 只给前端展示用第一张。
+                "gallery": [{"urls": list(g["urls"]), "w": g["w"], "h": g["h"]} for g in gal],
+                "images": [g["urls"][0] for g in gal],
+                "image_count": len(gal),
+                "video_url": "",
+                "audio_url": "",
+                "video_has_audio": False,
+                "video_id": str(aw.get("aweme_id") or uid),
+                "title": (title[:120] if title else "抖音图文"),
+                "duration": None,
+                "thumbnail": first["urls"][0],
+                "webpage_url": url,
+                "height": 0,
+                "width": 0,
+            }
         tr = _pick_track(aw)
         if not tr:
             return None

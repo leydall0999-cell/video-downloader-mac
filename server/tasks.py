@@ -228,6 +228,10 @@ class DownloadTask:
             "logs": self.logs,
             "children": list(self.children or []),
             "name_hint": self.name_hint,
+            # 抖音图文（多图）成品是**文件夹**而不是单文件。前端据此把「保存到本机」
+            # 的文案改成「打包为 zip」；/api/tasks/{id}/file 遇到目录也会就地打包，
+            # 两边口径必须一致（否则点保存会 500：FileResponse 不接受目录）。
+            "is_directory": bool(self.filepath and Path(self.filepath).is_dir()),
         }
         # 桌面版额外下发成品的**本机绝对路径**（用户报「你得让我知道在哪里啊，
         # 一堆文件夹我上哪找去」）：前端据此显示「已下载到本机：<路径>」并提供

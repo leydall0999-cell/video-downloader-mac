@@ -3179,6 +3179,37 @@ def _douyin_info(url: str, cookie: str = "") -> dict[str, Any]:
 def _shape_douyin_info(data: dict[str, Any], url: str) -> dict[str, Any]:
     """把 worker / 本地 CDP 返回的 data dict 构造成 yt-dlp 兼容的 info dict。"""
     headers = {"Referer": "https://www.douyin.com/", "User-Agent": _DOUYIN_UA}
+    # 图文作品（多图）：返回**不带视频流**的 info，由 run_download 的 `_vdl_gallery`
+    # 分支逐张落盘。绝不能顺手给个 url —— 图文的 video.play_addr 是抖音合成的
+    # 720×720 幻灯片视频，给了 url 用户下到的就是那个视频而不是图片。
+    if data.get("is_gallery"):
+        imgs = [u for u in (data.get("images") or []) if u]
+        gal = [dict(g) for g in (data.get("gallery") or []) if g.get("urls")]
+        # 兜底：万一上游只给了 images 没给 gallery（旧 worker / 云端通道），
+        # 用单地址补成同构结构，保证下载层拿到的形态一致。
+        if not gal:
+            gal = [{"urls": [u], "w": 0, "h": 0} for u in imgs]
+        if not gal:
+            raise ResolveError(
+                "该抖音作品没有可下载的图片",
+                "可能是图文作品里的图片已失效，请打开原页面确认后重试。",
+                category="parse_failed",
+            )
+        return {
+            "id": data.get("video_id") or "",
+            "title": data.get("title") or "抖音图文",
+            "duration": None,
+            "thumbnail": data.get("thumbnail") or (gal[0]["urls"] or [""])[0],
+            "webpage_url": data.get("webpage_url") or url,
+            "extractor_key": "Douyin",
+            "extractor": "douyin",
+            "ext": "webp",
+            "_vdl_gallery": gal,
+            "images": [g["urls"][0] for g in gal],
+            "_gallery_count": len(gal),
+            # 图片直链实测**不需要 Referer**（裸下 200），但带上 UA 更稳妥
+            "http_headers": {"User-Agent": _DOUYIN_UA},
+        }
     video_url = data.get("video_url") or ""
     audio_url = data.get("audio_url") or ""
     video_has_audio = bool(data.get("video_has_audio"))
@@ -5556,6 +5587,126 @@ def _sohu_pick_format_id(formats: list[dict], quality_key: str) -> str:
     return min(cands)[2]
 
 
+# ── 抖音图文（多图作品）─────────────────────────────────────────────────
+# 与视频的本质差别：**一个作品 = N 个文件**，落盘形态是目录而不是单文件。
+# 2026-11-03 实测：图片直链 200 可下、**不需要 Referer**，单张 q75 webp（2K 约 99KB）。
+# 拿不到「原始无损」——去掉 `~tplv-...` 转码段或换 .jpeg 一律 403（签名绑定了转码参数）。
+_IMG_EXT_BY_MAGIC: tuple[tuple[bytes, str], ...] = (
+    (b"RIFF", "webp"),          # RIFF....WEBP
+    (b"\x89PNG\r\n\x1a\n", "png"),
+    (b"\xff\xd8\xff", "jpg"),
+    (b"GIF8", "gif"),
+)
+
+
+def _image_ext(head: bytes, url: str = "") -> str:
+    """按文件头判图片真实扩展名（CDN 的 content-type 与 URL 后缀都不可全信）。"""
+    for magic, ext in _IMG_EXT_BY_MAGIC:
+        if head.startswith(magic):
+            return ext
+    low = (url or "").split("?")[0].lower()
+    for ext in ("webp", "png", "jpg", "jpeg", "gif", "heic"):
+        if low.endswith("." + ext):
+            return "jpg" if ext == "jpeg" else ext
+    return "webp"
+
+
+def _gallery_download(task: DownloadTask, info: dict[str, Any], workdir: Path,
+                      store: Any = None) -> Path:
+    """抖音图文：逐张下载到 `<workdir>/<标题>/`，返回该**目录**。
+
+    返回目录而不是文件，因此 run_download 下游的 `_ensure_audio_track`
+    （ffprobe）与完成态体积统计都必须按 gallery 分支跳过/换算，见调用点。
+    """
+    import requests as _rq
+
+    items = [it for it in (info.get("_vdl_gallery") or []) if it.get("urls")]
+    if not items:
+        raise ResolveError("该作品没有可下载的图片", "请更换链接后重试。")
+
+    total = len(items)
+    title = _safe_media_name(info.get("title") or info.get("id") or "抖音图文")
+    outdir = Path(workdir) / title
+    outdir.mkdir(parents=True, exist_ok=True)
+    headers = dict(info.get("http_headers") or {})
+    headers.setdefault("User-Agent", _DOUYIN_UA)
+
+    task.add_step("下载音视频", "running", f"图文作品：共 {total} 张图片，逐张下载中…")
+    task.log(f"抖音图文：共 {total} 张图片，保存到「{title}」文件夹")
+
+    width = max(2, len(str(total)))
+    done_bytes = 0
+    saved: list[Path] = []
+    # 关闭 trust_env：桌面端进程常继承 Clash/系统代理，走代理拉 CDN 会被误拦
+    sess = _rq.Session()
+    sess.trust_env = False
+    try:
+        for idx, it in enumerate(items, 1):
+            if task.cancel_requested:
+                raise DownloadCanceled()
+            tmp = outdir / f".{idx:0{width}d}.part"
+            last_err = ""
+            ok = False
+            # 每张给 3 条同源备用地址，逐条换源重试（链接有时效，单条可能已过期）
+            for u in it["urls"]:
+                try:
+                    with sess.get(u, headers=headers, timeout=(10, 60), stream=True) as r:
+                        if r.status_code != 200:
+                            last_err = f"HTTP {r.status_code}"
+                            continue
+                        head = b""
+                        with open(tmp, "wb") as f:
+                            for chunk in r.iter_content(65536):
+                                if task.cancel_requested:
+                                    raise DownloadCanceled()
+                                if not head:
+                                    head = chunk[:16]
+                                f.write(chunk)
+                        if tmp.stat().st_size < 256:
+                            last_err = "返回内容为空"
+                            tmp.unlink(missing_ok=True)
+                            continue
+                        dest = outdir / f"{idx:0{width}d}.{_image_ext(head, u)}"
+                        tmp.replace(dest)
+                        saved.append(dest)
+                        done_bytes += dest.stat().st_size
+                        ok = True
+                        break
+                except DownloadCanceled:
+                    raise
+                except Exception as _e:  # noqa: BLE001 - 换下一条备用地址
+                    last_err = type(_e).__name__
+                    try:
+                        tmp.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            if not ok:
+                raise ResolveError(
+                    f"第 {idx}/{total} 张图片下载失败",
+                    f"原因：{last_err or '未知'}。图片链接有时效，请重新解析后重试。",
+                )
+            pct = DOWNLOAD_PHASE_CEILING * idx / total
+            task.progress = pct
+            if store is not None:
+                try:
+                    store.update(task.id, progress=pct, downloaded_bytes=done_bytes)
+                except Exception:
+                    pass
+            task.log(f"第 {idx}/{total} 张完成（{_format_bytes(saved[-1].stat().st_size)}）")
+    finally:
+        try:
+            sess.close()
+        except Exception:
+            pass
+    # 供完成态换算真实体积（目录的 stat().st_size 只是个 96~4KB 的元数据大小）
+    info["_vdl_gallery_bytes"] = done_bytes
+    info["_vdl_gallery_files"] = [str(p) for p in saved]
+    # 让 _locate_output 直接拿到目录（它只判 Path(path).exists()，目录同样成立）
+    info["requested_downloads"] = [{"filepath": str(outdir)}]
+    task.log(f"图文全部完成：{total} 张图片，共 {_format_bytes(done_bytes)}")
+    return outdir
+
+
 def _sohu_download_parts(task: DownloadTask, info: dict[str, Any], base_opts: dict,
                          reporter, quality_key: str = "") -> Path:
     """搜狐多分片：逐片下载 → concat 合并 → 返回成品路径。
@@ -6307,6 +6458,16 @@ def build_quality_options(info: dict[str, Any]) -> list[dict[str, Any]]:
     逐档平铺（含抖音等 VPS 平台——不再走单档特例），每档可直接选择。
     只列 formats 中实际存在的高度（视频只有 720 就不再虚构 480/360 假档）。
     """
+    # 抖音图文（多图）：没有视频轨，清晰度这个概念不成立。给**单档**占位，
+    # 前端据此把面板换成「保存 N 张图片」；key 用 best，保证 is_valid_quality 放行。
+    if info.get("_vdl_gallery"):
+        n = len(info.get("_vdl_gallery") or [])
+        return [{
+            "key": BEST_KEY,
+            "label": f"原图 {n} 张",
+            "note": "WebP · 逐张保存到同一文件夹",
+            "approx_size": 0,
+        }]
     formats = [f for f in (info.get("formats") or []) if isinstance(f, dict)]
     # 排除 mhtml 雪碧图/storyboard：其高度（180/90/45/27 等）会被当成真实清晰度
     # 平铺成「180P/90P/45P/27P」怪档（2026-10-01 SABR 实测踩坑）
@@ -8117,7 +8278,11 @@ def _run_once(task: DownloadTask, store: TaskStore, quality_key: str, cookie: st
             # （如 AV1 400/39x、部分 H.264 298/18）URL 被 Google CDN 拒绝，
             # 捕获后自动换 client 与已知可用格式重试，用户无感知。
             try:
-                if info.get("_vdl_parts"):
+                if info.get("_vdl_gallery"):
+                    # 抖音图文（多图）：没有视频轨，绝不进 yt-dlp。
+                    # 逐张落盘到 `<workdir>/<标题>/`，完成态的体积/文件名另算。
+                    _gallery_download(task, info, task.workdir or Path("."), store)
+                elif info.get("_vdl_parts"):
                     # 搜狐多分片：逐段下载 + ffmpeg concat（进度由 reporter 按文件名累加）
                     _sohu_download_parts(task, info, _dl_opts, reporter, quality_key)
                 else:
@@ -8219,9 +8384,14 @@ def _run_once(task: DownloadTask, store: TaskStore, quality_key: str, cookie: st
 
             output = _locate_output(info, task.workdir or Path("."))
             # 无声防御（2026-08-23）：成品音轨校验 + 补救（纯音频任务跳过）
-            if task.quality_key not in (AUDIO_KEY, M4A_KEY):
-                output = _ensure_audio_track(output, info, task)
-            _write_sidecar(output, task, info)
+            # 抖音图文：output 是**目录**，不能对目录跑 ffprobe（会误报「该视频源无音轨」），
+            # 也没有成品文件可写 .vdlmeta.json 侧车，两者一并跳过。
+            if info.get("_vdl_gallery"):
+                pass
+            else:
+                if task.quality_key not in (AUDIO_KEY, M4A_KEY):
+                    output = _ensure_audio_track(output, info, task)
+                _write_sidecar(output, task, info)
     except DownloadPaused:
         if _gen_stale():
             return
@@ -8278,16 +8448,24 @@ def _run_once(task: DownloadTask, store: TaskStore, quality_key: str, cookie: st
         # 可选：下载完成后提取文案（口播/简介），失败不影响下载完成态
         if task.extract_mode:
             _run_extraction(task, store, output, info, cookie, proxy)
-        task.add_step("合并与后处理", "done", f"输出文件：{output.name}")
-        task.add_step("下载完成", "done", f"文件大小：{_format_bytes(output.stat().st_size)}")
-        task.log(f"下载完成：{output.name}")
+        # 抖音图文：output 是**目录**，体积按实际图片总和算，标签说人话
+        if info.get("_vdl_gallery"):
+            _out_bytes = int(info.get("_vdl_gallery_bytes") or 0)
+            _n = int(info.get("_gallery_count") or 0) or len(info.get("_vdl_gallery_files") or [])
+            _out_label = f"{_n} 张图片（{output.name}）"
+        else:
+            _out_bytes = output.stat().st_size
+            _out_label = output.name
+        task.add_step("合并与后处理", "done", f"输出位置：{_out_label}")
+        task.add_step("下载完成", "done", f"文件大小：{_format_bytes(_out_bytes)}")
+        task.log(f"下载完成：{_out_label}")
         store.update(
             task.id,
             status="completed",
             progress=100.0,
             filepath=output,
             filename=output.name,
-            filesize=output.stat().st_size,
+            filesize=_out_bytes,
             speed=0.0,
             eta=0,
         )
@@ -9004,6 +9182,10 @@ def summarize(info: dict[str, Any]) -> dict[str, Any]:
         "is_hls": is_hls,
         "is_live": bool(info.get("is_live")),
         "watch_options": build_watch_options(info),
+        # 抖音图文（多图）：前端据此把「清晰度选择」换成「保存 N 张图片」。
+        # 非图文恒为空列表，前端原有分支完全不受影响。
+        "images": list(info.get("images") or []),
+        "is_gallery": bool(info.get("_vdl_gallery")),
         # 诊断字段（仅供排查优酷剧集剧名补全是否生效，前端忽略即可）
         "_series_source": info.get("_series_source", ""),
     }

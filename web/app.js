@@ -1947,7 +1947,20 @@
     // 字节系 CDN（抖音/快手/微博…）校验 Referer，而 Referer 是浏览器的 forbidden
     // header（JS/<a>/fetch 都设不了）→ 浏览器直连必然 403，只能交给本机后端/原生桥。
     const directOk = !!directUrl && (isDesktopShell() || !directNeedsReferer(video));
-    if (directUrl && directOk) {
+    // 抖音图文（多图作品）：没有视频轨，「清晰度」这个概念不成立。
+    // 保存的是 N 个图片文件，落在同一个文件夹里；因此隐藏清晰度面板、
+    // 按钮文案改成张数。selectedQuality 固定 best（后端 gallery 分支不看档位，
+    // 但保持状态干净，避免沿用上一个视频的 "1080" 之类的残留值）。
+    const galleryImages = Array.isArray(video.images) ? video.images : [];
+    if (video.is_gallery && galleryImages.length) {
+      const n = galleryImages.length;
+      selectedQuality = 'best';
+      el.qualityBlock.hidden = true;
+      el.downloadBtn.lastChild.textContent = `保存 ${n} 张图片`;
+      el.directHint.hidden = false;
+      el.directHint.textContent = `📷 这是图文作品（不是视频）：点上方按钮会把全部 ${n} 张图片保存到「下载」里的同一个文件夹。`;
+      el.serverFallbackBtn.hidden = true;
+    } else if (directUrl && directOk) {
       // 直链透传：跳过清晰度选择与服务器下载，直接保存到本机
       el.qualityBlock.hidden = true;
       el.downloadBtn.lastChild.textContent = '直接保存到本机 ⬇';
@@ -2184,10 +2197,12 @@
       return;
     }
     if (task.local_path) {
-      renderPathHint(box, '已下载到本机：', task.local_path);
+      renderPathHint(box, task.is_directory ? '图片已保存到这个文件夹：' : '已下载到本机：', task.local_path);
       const more = document.createElement('span');
       more.className = 'save-hint-more';
-      more.textContent = ' 想放到别的位置？点上方「保存到本机」另存（默认到「下载」文件夹）。';
+      more.textContent = task.is_directory
+        ? ' 想放到别处？点上方「保存到本机」会把这些图片打包成一个 zip（同名文件夹）。'
+        : ' 想放到别的位置？点上方「保存到本机」另存（默认到「下载」文件夹）。';
       box.appendChild(more);
       return;
     }
@@ -2433,8 +2448,13 @@
       const label = btn.textContent;
       btn.textContent = '正在保存…';
       try {
+        // 抖音图文：后端产物是文件夹，/api/tasks/{id}/file 会就地打包成 zip。
+        // 建议名必须带 .zip，否则用户存出来的文件没有扩展名、双击打不开。
+        const _saveName = task.is_directory
+          ? `${(task.filename || '图片').replace(/\.zip$/i, '')}.zip`
+          : (btn.dataset.saveName || '下载文件');
         const res = await api.save_task_file(
-          task.task_id, btn.dataset.saveName || '下载文件', deviceId(), authBearerToken());
+          task.task_id, _saveName, deviceId(), authBearerToken());
         if (res === 'CANCELLED') {
           refs.saveHint.hidden = false;
           refs.saveHint.textContent = '已取消保存（文件仍在本机，可随时再点「保存到本机」）。';
@@ -2455,7 +2475,7 @@
   const paintTask = (refs, task, autoSave) => {    const active = ACTIVE_STATES.includes(task.status);
     refs.title.textContent = task.title || refs.fallbackTitle || '解析中…';
     refs.platform.textContent = task.platform;
-    refs.quality.textContent = task.quality;
+    refs.quality.textContent = task.is_directory ? '图文作品（多图）' : task.quality;
     refs.status.textContent = STATUS_TEXT[task.status] || task.status;
     refs.status.dataset.state = task.status;
     // 进度条：所有进行中状态无 total 时都走 indeterminate 扫动，
