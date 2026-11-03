@@ -776,6 +776,29 @@ else
   echo "   跳过：首次使用时从 download.hanyuxz.top/models/sensevoice-v1.tar.xz 下载（146MB）"
 fi
 
+echo "▶ 内嵌 Chromium（抖音解析引擎：用户零安装、零窗口）"
+# 背景见 desktop/fetch_chromium.sh 顶部注释：抖音必须有真实 Chromium 内核，
+# 而 App 外壳是 WKWebView（拿不到 CDP）⇒ 原来要求用户自装 Chrome/Edge，被否决。
+# 落到 Contents/Resources/chromium，运行时由 server/douyin_cdp._bundled_chromium()
+# 定位并排到候选首位。
+# 🔴 必须用 ditto，不能用 cp -R / --add-data：目录里 libEGL.dylib / libGLESv2.dylib
+#    是指向系统库的**符号链接**（736 字节），cp -R 会展开成实体、体积虚增，
+#    且签名密封的哈希与实际运行的不一致。
+CHROMIUM_SRC="$REPO/vendor/chrome-headless-shell-mac-arm64"
+CHROMIUM_DST="$REPO/dist/VideoDownloader.app/Contents/Resources/chromium"
+if [ ! -x "$CHROMIUM_SRC/chrome-headless-shell" ]; then
+  echo "   本机无 vendor 缓存，先获取（首次约 99MB）"
+  bash "$REPO/desktop/fetch_chromium.sh" || true
+fi
+if [ -x "$CHROMIUM_SRC/chrome-headless-shell" ]; then
+  rm -rf "$CHROMIUM_DST" 2>/dev/null || mv "$CHROMIUM_DST" "$REPO/dist/_old_chromium_$$" 2>/dev/null || true
+  mkdir -p "$CHROMIUM_DST"
+  ditto "$CHROMIUM_SRC/" "$CHROMIUM_DST/"
+  echo "   已内嵌：Contents/Resources/chromium（$(du -sh "$CHROMIUM_DST" | cut -f1)）"
+else
+  echo "   ⚠️ 未取到 Chromium ⇒ 抖音解析退回系统 Chrome/Edge（未装则该功能不可用）"
+fi
+
 echo "▶ 签名（ad-hoc）"
 codesign --force --deep --sign - "$REPO/dist/VideoDownloader.app" 2>/dev/null
 xattr -dr com.apple.quarantine "$REPO/dist/VideoDownloader.app" 2>/dev/null

@@ -56,17 +56,54 @@ def _log(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # 常量 / 路径
 # ---------------------------------------------------------------------------
+def _bundled_chromium() -> str:
+    """App 内嵌的 Chromium（chrome-headless-shell），找不到返回 ""。
+
+    🔴 2026-11-03 定案：抖音解析必须有**真实 Chromium 内核**（Argus 风控要求设备
+    指纹与浏览器同源），而 App 外壳是 WKWebView/mac 或 WebView2/win，都拿不到
+    CDP 网络层。原来靠用户自装 Chrome/Edge ⇒ 用户否决「装浏览器才能用抖音」。
+    改为随包分发 headless-shell（压缩 99MB / 解压 204MB）：零安装、零窗口、
+    零外部进程。构建侧见 desktop/fetch_chromium.sh 与 build_mac.sh。
+
+    路径推导（PyInstaller onedir + macOS .app）：
+        <App>.app/Contents/MacOS/<可执行>  ← sys.executable
+        <App>.app/Contents/Resources/chromium/chrome-headless-shell
+    开发态（非 frozen）返回 ""，照旧走系统浏览器。
+    """
+    if not getattr(sys, "frozen", False):
+        return ""
+    try:
+        exe = os.path.realpath(sys.executable)
+        contents = os.path.dirname(os.path.dirname(exe))   # .../Contents
+        for rel in (
+            os.path.join("Resources", "chromium"),
+            os.path.join("Frameworks", "chromium"),
+        ):
+            base = os.path.join(contents, rel)
+            for name in ("chrome-headless-shell", "chrome-headless-shell.exe"):
+                p = os.path.join(base, name)
+                if os.path.exists(p):
+                    return p
+    except Exception:
+        pass
+    return ""
+
+
 def _browser_candidates() -> list[str]:
     """按优先级列出可用的 Chromium 内核浏览器（都能跑 `--remote-debugging-port`
     和 `--headless=new`，因此都能当抖音解析引擎）。
 
     🔴 2026-11-03 用户质问「没装 Chrome 就用不了，那和不能用有什么区别」——这条
-    确实是真缺口，但 Windows 端本来不该有：
-      - Win10/11 **自带 Edge**（Chromium 内核）⇒ 加进候选后 Windows 用户零安装。
-      - macOS 自带 Safari（WKWebView 内核）**不支持 CDP**，所以只能 Chrome/Edge/Brave。
+    确实是真缺口。两端的解法不同：
+      - **内嵌优先**：App 自带 chrome-headless-shell（见 `_bundled_chromium`），
+        打头的就是它 ⇒ 装了本 App 的用户 100% 能用，不看系统里有什么。
+      - Windows 另有 **自带 Edge** 兜底（Chromium 内核），覆盖率接近 100%。
+      - macOS 自带 Safari（WKWebView）**不支持 CDP**，所以系统候选只有
+        Chrome/Edge/Brave/Chromium —— 仅在内嵌缺失（旧包/开发态）时才需要。
     """
+    bundled = _bundled_chromium()
     if sys.platform == "darwin":
-        return [
+        return ([bundled] if bundled else []) + [
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
             "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
             "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
@@ -78,7 +115,7 @@ def _browser_candidates() -> list[str]:
         pf = os.path.expandvars(r"%PROGRAMFILES%")
         pf86 = os.path.expandvars(r"%PROGRAMFILES(X86)%")
         la = os.path.expandvars(r"%LOCALAPPDATA%")
-        return [
+        return ([bundled] if bundled else []) + [
             os.path.join(la, r"Google\Chrome\Application\chrome.exe"),
             os.path.join(pf, r"Google\Chrome\Application\chrome.exe"),
             os.path.join(pf86, r"Google\Chrome\Application\chrome.exe"),
