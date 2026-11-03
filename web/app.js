@@ -15616,6 +15616,13 @@ el.dwVidPlayer.hidden = true;
       // 🔴 2026-10-26 文案澄清：「5 个半小时」曾被读成「5.5 小时」——改为明确口吻
       const _u = res.credit_units > 1 ? `（按 ${res.credit_units} 个半小时计）` : '';
       costTip = `本次将消耗 ${res.credit_cost} 积分${_u}。`;
+      // 🔴 2026-11-03 用户反馈误导：选完片的初始预估按整片时长算（45:33 → 100 积分），
+      //    但用户设了起点/终点后根本不会做全片——不说明口径，用户以为这就是最终价。
+      //    未设任何范围时明说「按整片估算」，并提示设置范围后会重算。
+      const _ds = comDramaSec(el.comDramaStart);
+      const _de = comDramaSec(el.comDramaEnd);
+      const _hasRange = comTrimStart > 0 || comTrimEnd > 0 || _ds != null || _de != null;
+      if (!_hasRange) costTip += '当前按整片时长估算；设置「起点/终点」后会按实际范围重算。';
     }
     if (blocked) {
       el.comStatus.hidden = false;
