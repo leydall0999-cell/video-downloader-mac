@@ -2561,11 +2561,32 @@ def _kill_douyin_engine() -> None:
             return
         for pat in ("douyin-cdp-profile", "chrome-headless-shell"):
             try:
-                subprocess.run(["pkill", "-f", pat],
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=5)
+                # 冻结包从 Finder 启动时 PATH 可能极简，用绝对路径优先，失败再退回裸命令。
+                for exe in ("/usr/bin/pkill", "pkill"):
+                    try:
+                        subprocess.run([exe, "-f", pat],
+                                       stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL, timeout=5)
+                        break
+                    except FileNotFoundError:
+                        continue
             except Exception:
                 pass
+        # 兜底：pkill 不可用/没匹配到时，自己枚举进程再杀（退出路径上不能有「算了」）。
+        try:
+            out = subprocess.run(["/bin/ps", "-axo", "pid=,command="],
+                                 capture_output=True, text=True, timeout=5).stdout
+            killed = 0
+            for line in out.splitlines():
+                if "douyin-cdp-profile" in line or "chrome-headless-shell" in line:
+                    try:
+                        os.kill(int(line.split(None, 1)[0]), signal.SIGKILL)
+                        killed += 1
+                    except Exception:
+                        pass
+            _launch_log(f"退出清理：内嵌 Chromium 已收尾（ps 兜底杀了 {killed} 个）")
+        except Exception as _e:
+            _launch_log(f"退出清理失败：{type(_e).__name__}: {_e}")
     except Exception:
         pass
 
@@ -3542,6 +3563,12 @@ def main() -> None:
                 def _patch_app_should_terminate(self, app):
                     global _app_terminating
                     _app_terminating = True  # 来自 Dock Quit / Cmd+Q
+                    # 🔴 2026-11-03 实测：这里返回 YES 后 AppKit **立刻终止进程**，
+                    #    pywebview 的 closing 事件根本不触发 ⇒ 挂 `_on_closing` 里的
+                    #    清理永远不执行（App 退了，内嵌 Chromium 6 个进程还在跑）。
+                    #    Cmd+Q / Dock Quit / AppleScript quit 全走这条，因此这里是
+                    #    唯一的收口点：必须在放行之前先带走解析浏览器。
+                    _kill_douyin_engine()
                     return _Foundation.YES    # 始终允许退出
 
                 _AD.applicationShouldTerminate_ = _patch_app_should_terminate
