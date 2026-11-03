@@ -13279,10 +13279,10 @@ el.dwVidPlayer.hidden = true;
   let comDramaStash = { start: '', end: '' };
   let comDramaSuggest = null;      // {lo, hi, dur} | null（轻量探测建议值）
   let comDramaSuggestSeq = 0;      // 换片竞态保护：旧请求迟到直接丢弃
-  const COM_DRAMA_GATE_NOTE = '「保留片头片尾·不解说」：起点/终点<b>填了就按这段裁剪</b>（与「去片头片尾」无关），'
-    + '按「时:分:秒」填——34分12秒直接填 <b>0:34:12</b>。留空或全 0＝不裁剪（按全片解说）。';
+  const COM_DRAMA_GATE_NOTE = '「保留片头片尾·不解说」：起点/终点<b>填了就按这段裁剪</b>（与「去片头片尾」无关）。'
+    + '输入框是<b>分段式</b>的：光标落在时/分/秒哪一段，敲的数字就是哪一段（34分12秒 → 时位留 0、分位敲 34、秒位敲 12）；左右键切段，上下键加减。留空或全 0＝不裁剪（按全片解说）。';
   const COM_DRAMA_OPEN_NOTE = '「去片头片尾」：<b>留空＝自动检测</b>（读片名/集数画面+人声黑场，识别不到兜底跳过前 90 秒）；'
-    + '<b>填了就以你填的为准</b>——按「时:分:秒」填，34分12秒直接填 <b>0:34:12</b>。预填的时间是系统探测到的建议值，可直接改。';
+    + '<b>填了就以你填的为准</b>——输入框是<b>分段式</b>的：光标落在时/分/秒哪一段，敲的数字就是哪一段。预填的时间是系统探测到的建议值，可直接改。';
   /** 向后端要轻量边界建议（媒体库/下载源才有 id；本地拖拽文件拿不到服务端路径，
    *  不预填、留给渲染时全量检测——避免拿 audio-only 的建议值盖掉更准的视觉识别）。 */
   const comDramaSuggestFetch = async (fidOverride) => {
@@ -16086,6 +16086,86 @@ el.dwVidPlayer.hidden = true;
     });
     el.comDramaEndRange.addEventListener('change', () => document.dispatchEvent(new CustomEvent('vdl:com-precheck-refresh')));
   }
+  // 2026-11-03 二次定稿：段式输入——光标落在时/分/秒哪一段，敲数字就改那一段
+  // （时位敲 3＝3 小时、分位敲 34＝34 分），不再是「整框按秒」。
+  // 左右方向键切段、上下键 ±1、Backspace 清当前段、敲满两位再敲＝重新输。
+  const COM_SEG_CAP = [99, 59, 59];   // 时/分/秒 各段上限
+  const comSegJoin = (segs) => segs[0] + ':' + String(segs[1]).padStart(2, '0') + ':' + String(segs[2]).padStart(2, '0');
+  /** 值（可为空）→ [h,m,s]；空框按 0:00:00 的形态。 */
+  const comSegValue = (val) => {
+    if (!val || !val.trim()) return [0, 0, 0];
+    const p = String(val).split(':');
+    return [Number(p[0]) || 0, Number(p[1]) || 0, Number(p[2]) || 0];
+  };
+  /** 三段在字符串里的 [start,end] 区间。 */
+  const comSegLayout = (val) => {
+    const v = val || '0:00:00';
+    const i1 = v.indexOf(':'), i2 = v.indexOf(':', i1 + 1);
+    return [[0, i1], [i1 + 1, i2], [i2 + 1, v.length]];
+  };
+  const comSegFocus = (input) => () => {
+    const st = input._comSeg || (input._comSeg = { idx: 0, fresh: true });
+    st.fresh = true;
+    const pos = input.selectionStart == null ? 0 : input.selectionStart;
+    const sp = comSegLayout(input.value);
+    st.idx = pos <= sp[0][1] ? 0 : pos <= sp[1][1] ? 1 : 2;
+    input.setSelectionRange(sp[st.idx][0], sp[st.idx][1]);
+  };
+  const comSegKeydown = (input) => (ev) => {
+    const st = input._comSeg || (input._comSeg = { idx: 0, fresh: true });
+    const segs = comSegValue(input.value);
+    const selectSeg = () => {
+      const sp = comSegLayout(input.value);
+      input.setSelectionRange(sp[st.idx][0], sp[st.idx][1]);
+    };
+    if (/^[0-9]$/.test(ev.key)) {
+      ev.preventDefault();
+      const d = Number(ev.key);
+      let cur = segs[st.idx];
+      if (st.fresh) { cur = d; st.fresh = false; }
+      else if (String(cur).length >= 2) { cur = d; }   // 已两位再敲 → 重新输（免手动删）
+      else { cur = cur * 10 + d; }
+      segs[st.idx] = Math.min(cur, COM_SEG_CAP[st.idx]);
+      input.value = comSegJoin(segs);
+      selectSeg();
+      return;
+    }
+    if (ev.key === ':' || ev.key === '.' || ev.key === '。' || ev.key === '·' || ev.key === ',') {
+      ev.preventDefault();                             // 敲冒号/小数点 → 跳下一段
+      if (st.idx < 2) { st.idx += 1; st.fresh = true; selectSeg(); }
+      return;
+    }
+    if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'ArrowUp' || ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      if (ev.key === 'ArrowLeft' && st.idx > 0) st.idx -= 1;
+      else if (ev.key === 'ArrowRight' && st.idx < 2) st.idx += 1;
+      else if (ev.key === 'ArrowUp' || ev.key === 'ArrowDown') {
+        const dir = ev.key === 'ArrowUp' ? 1 : -1;
+        segs[st.idx] = Math.max(0, Math.min(COM_SEG_CAP[st.idx], segs[st.idx] + dir));
+        input.value = comSegJoin(segs);
+      }
+      st.fresh = true;
+      selectSeg();
+      return;
+    }
+    if (ev.key === 'Backspace' || ev.key === 'Delete') {
+      ev.preventDefault();
+      segs[st.idx] = 0;
+      input.value = comSegJoin(segs);
+      st.fresh = true;
+      selectSeg();
+      return;
+    }
+    // 拦掉字母等无关单字符，避免把固定格式敲坏；Tab/Enter 放行走 change 归一
+    if (ev.key.length === 1 && !ev.metaKey && !ev.ctrlKey && !ev.altKey) ev.preventDefault();
+  };
+  [el.comDramaStart, el.comDramaEnd].forEach((inp) => {
+    if (!inp) return;
+    inp.addEventListener('focus', comSegFocus(inp));
+    inp.addEventListener('click', comSegFocus(inp));
+    inp.addEventListener('keydown', comSegKeydown(inp));
+  });
+
   el.comTrimReset.addEventListener('click', resetTrim);
 
   // ===== v2 剪映式改版（2026-09-17）：历史面板 / 时间轴同步 / 窄窗口检查器抽屉 =====
