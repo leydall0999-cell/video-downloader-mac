@@ -875,11 +875,12 @@ def download_file(task_id: str, request: app.Request, download: int=0) -> app.Re
         import urllib.parse as _up
         _zip_name = f"{task.filepath.name}.zip"
         _q = _up.quote(_zip_name)
-        # Content-Disposition 的 filename= 只能是 ASCII；纯中文标题 encode 后会剩
-        # 一堆 `_# ` 之类的残渣（实测 `"_# #steam.zip"`），看着像坏文件。宁可给
-        # 一个干净的通用名，反正所有现代客户端都走 filename*（UTF-8）。
+        # Content-Disposition 的 filename= 只能是 ASCII；中文标题 encode 后会剩下
+        # 标点残渣（实测 `"_# #steam.zip"`，看着像坏文件）。判据不能是「有没有剩
+        # 字母数字」——`steam` 就是字母，照样放过残渣。只要原标题含非 ASCII，一律
+        # 给干净的通用名；真实名字走 filename*（UTF-8），现代客户端都认它。
         _ascii = _zip_name.encode('ascii', 'ignore').decode().strip()
-        if not re.search(r'[A-Za-z0-9]', _ascii):
+        if not _zip_name.isascii() or not re.search(r'[A-Za-z0-9]', _ascii):
             _ascii = 'gallery.zip'
         return _FileResponse(
             path=_zip,

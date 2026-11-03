@@ -190,6 +190,11 @@ def main() -> int:
     check("不压缩存储（图片已是压缩格式）", "ZIP_STORED" in blk_file)
     check("给干净的 ASCII 兜底名（纯中文标题 encode 后只剩 `_# ` 残渣）",
           "re.search(r'[A-Za-z0-9]'" in blk_file and "gallery.zip" in blk_file)
+    # 🔴 2026-11-03 实测踩到：判据只判「剩没剩字母数字」时，标题 `小米塔可爱捏_#米塔
+    # #steam游戏` encode 后剩 `_# #steam.zip` —— 有 `steam` 这几个字母，于是残渣被
+    # 当成合格名放行。正解是只要原标题含非 ASCII 就一律走通用名。
+    check("标题含非 ASCII 时不再放过 `_# #steam.zip` 这类残渣",
+          "_zip_name.isascii()" in blk_file)
     check("任务对外字段带 is_directory", '"is_directory"' in src_tasks)
 
     print()
