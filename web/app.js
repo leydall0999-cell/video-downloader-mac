@@ -16111,18 +16111,23 @@ el.dwVidPlayer.hidden = true;
     st.idx = pos <= sp[0][1] ? 0 : pos <= sp[1][1] ? 1 : 2;
     input.setSelectionRange(sp[st.idx][0], sp[st.idx][1]);
   };
-  const comSegKeydown = (input) => {
-    // 🔴 2026-11-03 实测：一次按键会触发两次 keydown（输入法/WebView 双发），按住稍久
-    // 还会触发系统自动重复 → 「24」被叠成「44」。修法：忽略 repeat 事件 + 同键 100ms
-    // 内视为同一次按键只认第一次（人手同键再按不可能快过 100ms）。
-    let _lastKey = '', _lastAt = 0;
-    return (ev) => {
-      if (ev.repeat) return;
-      const _now = Date.now();
-      if (ev.key === _lastKey && _now - _lastAt < 100) { _lastAt = _now; return; }
-      _lastKey = ev.key; _lastAt = _now;
-      const st = input._comSeg || (input._comSeg = { idx: 0, fresh: true });
-      const segs = comSegValue(input.value);
+  const comSegKeys = (input) => {
+    // 🔴 2026-11-03 二修：100ms 时间窗没压住（用户实测 2→22、3→33）⇒ 双发间隔能超过
+    // 100ms。改「keyup 判据」为主：一条物理按键只伴随一条 keyup；同键 keydown 在上一条
+    // keydown 后没等到 keyup ＝ 重复/双发/自动重复，直接丢弃（不限间隔）；<150ms 时间窗
+    // 兜底（人手同键两连击快不过 150ms）；>1.2s 没等到 keyup 视为环境丢事件，放行。
+    const ks = input._comSegKeys || (input._comSegKeys = { lastKey: '', downAt: 0, seenUp: true });
+    return {
+      down: (ev) => {
+        if (ev.repeat) return;
+        const now = Date.now();
+        if (ev.key === ks.lastKey) {
+          if (!ks.seenUp && now - ks.downAt < 1200) { ks.downAt = now; return; }
+          if (now - ks.downAt < 150) { ks.downAt = now; return; }
+        }
+        ks.lastKey = ev.key; ks.downAt = now; ks.seenUp = false;
+        const st = input._comSeg || (input._comSeg = { idx: 0, fresh: true });
+        const segs = comSegValue(input.value);
     const selectSeg = () => {
       const sp = comSegLayout(input.value);
       input.setSelectionRange(sp[st.idx][0], sp[st.idx][1]);
@@ -16167,13 +16172,17 @@ el.dwVidPlayer.hidden = true;
     }
     // 拦掉字母等无关单字符，避免把固定格式敲坏；Tab/Enter 放行走 change 归一
     if (ev.key.length === 1 && !ev.metaKey && !ev.ctrlKey && !ev.altKey) ev.preventDefault();
-    };
+        },
+        up: (ev) => { if (ev.key === ks.lastKey) ks.seenUp = true; },
+      };
   };
   [el.comDramaStart, el.comDramaEnd].forEach((inp) => {
     if (!inp) return;
+    const _keys = comSegKeys(inp);
     inp.addEventListener('focus', comSegFocus(inp));
     inp.addEventListener('click', comSegFocus(inp));
-    inp.addEventListener('keydown', comSegKeydown(inp));
+    inp.addEventListener('keydown', _keys.down);
+    inp.addEventListener('keyup', _keys.up);
   });
 
   el.comTrimReset.addEventListener('click', resetTrim);
