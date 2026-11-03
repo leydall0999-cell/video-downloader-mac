@@ -16074,6 +16074,7 @@ el.dwVidPlayer.hidden = true;
     el.comDramaStartRange.addEventListener('input', () => {
       const v = parseFloat(el.comDramaStartRange.value) || 0;
       el.comDramaStart.value = formatDramaHMS(Math.max(0, Math.floor(v)));
+      el.comDramaStart._comSegOfficial = el.comDramaStart.value;
       updateTrimDurationText();
     });
     el.comDramaStartRange.addEventListener('change', () => document.dispatchEvent(new CustomEvent('vdl:com-precheck-refresh')));
@@ -16082,6 +16083,7 @@ el.dwVidPlayer.hidden = true;
     el.comDramaEndRange.addEventListener('input', () => {
       const v = parseFloat(el.comDramaEndRange.value) || 0;
       el.comDramaEnd.value = formatDramaHMS(Math.max(0, Math.floor(v)));
+      el.comDramaEnd._comSegOfficial = el.comDramaEnd.value;
       updateTrimDurationText();
     });
     el.comDramaEndRange.addEventListener('change', () => document.dispatchEvent(new CustomEvent('vdl:com-precheck-refresh')));
@@ -16103,10 +16105,23 @@ el.dwVidPlayer.hidden = true;
     const i1 = v.indexOf(':'), i2 = v.indexOf(':', i1 + 1);
     return [[0, i1], [i1 + 1, i2], [i2 + 1, v.length]];
   };
-  const comSegFocus = (input) => () => {
+  const comSegFocus = (input) => (ev) => {
     const st = input._comSeg || (input._comSeg = { idx: 0, fresh: true });
     st.fresh = true;
-    const pos = input.selectionStart == null ? 0 : input.selectionStart;
+    // 🔴 2026-11-03 真凶：空框时真实文本为空字符串，浏览器光标只能落在 0，
+    // 而 comSegLayout 按占位形态算区间 ⇒ 点「分钟」位置也恒判成小时段（2 变 22）。
+    // 修法①：聚焦即把占位形态落成真实文本，所见即所点；
+    // 修法②：点击时用 caretRangeFromPoint 按坐标反算字符位置，不依赖光标残留。
+    if (!input.value || !input.value.trim()) input.value = '0:00:00';
+    input._comSegOfficial = input.value;
+    let pos = input.selectionStart == null ? 0 : input.selectionStart;
+    if (ev && ev.type === 'click' && ev.clientX != null && document.caretRangeFromPoint) {
+      try {
+        const r = document.caretRangeFromPoint(ev.clientX, ev.clientY);
+        if (r && r.startContainer !== input) pos = r.startOffset;
+      } catch (e) { /* 保持光标兜底 */ }
+    }
+    if (typeof pos !== 'number' || pos < 0) pos = 0;
     const sp = comSegLayout(input.value);
     st.idx = pos <= sp[0][1] ? 0 : pos <= sp[1][1] ? 1 : 2;
     input.setSelectionRange(sp[st.idx][0], sp[st.idx][1]);
@@ -16141,6 +16156,7 @@ el.dwVidPlayer.hidden = true;
       else { cur = cur * 10 + d; }
       segs[st.idx] = Math.min(cur, COM_SEG_CAP[st.idx]);
       input.value = comSegJoin(segs);
+      input._comSegOfficial = input.value;
       selectSeg();
       return;
     }
@@ -16157,6 +16173,7 @@ el.dwVidPlayer.hidden = true;
         const dir = ev.key === 'ArrowUp' ? 1 : -1;
         segs[st.idx] = Math.max(0, Math.min(COM_SEG_CAP[st.idx], segs[st.idx] + dir));
         input.value = comSegJoin(segs);
+        input._comSegOfficial = input.value;
       }
       st.fresh = true;
       selectSeg();
@@ -16166,6 +16183,7 @@ el.dwVidPlayer.hidden = true;
       ev.preventDefault();
       segs[st.idx] = 0;
       input.value = comSegJoin(segs);
+      input._comSegOfficial = input.value;
       st.fresh = true;
       selectSeg();
       return;
@@ -16183,7 +16201,47 @@ el.dwVidPlayer.hidden = true;
     inp.addEventListener('click', comSegFocus(inp));
     inp.addEventListener('keydown', _keys.down);
     inp.addEventListener('keyup', _keys.up);
+    // 🔴 2026-11-03 三修（结构性）：合法改动全部走 keydown 且 preventDefault，
+    // 正常情况下这些框**永远不会**触发原生 input 事件。一旦触发 ＝ 输入法组合插入
+    // /原生插入绕过了 keydown 拦截（实测：敲 2 被插成 0:022 → 归一成 22 分，9 变 59
+    // 即 99 撞上限）——一律回滚到程序认定值。不赌事件形态、不赌时间窗。
+    inp.addEventListener('input', () => {
+      const off = inp._comSegOfficial;
+      if (off != null && inp.value !== off) {
+        inp.value = off;
+        const st2 = inp._comSeg;
+        if (st2) { const sp2 = comSegLayout(inp.value); inp.setSelectionRange(sp2[st2.idx][0], sp2[st2.idx][1]); }
+      }
+    });
   });
+
+  // ===== 临时诊断（2026-11-03 数字翻倍排查，定位后整段删除）=====
+  const _vdlKeylog = (tag) => (ev) => {
+    try {
+      const t = ev.target;
+      const rec = { tag, type: ev.type, key: ev.key, code: ev.code,
+        repeat: !!ev.repeat, isComposing: !!ev.isComposing, keyCode: ev.keyCode,
+        inputType: ev.inputType, data: ev.data, t: Date.now() };
+      if (t && t.value != null) rec.value = t.value;
+      if (t && t.selectionStart != null) rec.sel = [t.selectionStart, t.selectionEnd];
+      (window.__vdlKeyLog = window.__vdlKeyLog || []).push(rec);
+      try {   // 剪贴板回传（网络通道在 WKWebView 里可能被拦，剪贴板最稳）
+        const _api = window.pywebview && window.pywebview.api;
+        if (_api && _api.copy_to_clipboard) _api.copy_to_clipboard(JSON.stringify(window.__vdlKeyLog));
+      } catch (e2) { /* 诊断埋点 */ }
+      fetch('http://127.0.0.1:8399/log', { method: 'POST', keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rec) }).catch(() => {});
+    } catch (e) { /* 诊断埋点，绝不影响主流程 */ }
+  };
+  ['keydown', 'keyup', 'beforeinput', 'input', 'compositionstart', 'compositionend']
+    .forEach((ty) => { document.addEventListener(ty, _vdlKeylog('doc'), true); });
+  [el.comDramaStart, el.comDramaEnd].forEach((inp) => {
+    if (!inp) return;
+    ['keydown', 'keyup', 'beforeinput', 'input', 'compositionstart', 'compositionend']
+      .forEach((ty) => { inp.addEventListener(ty, _vdlKeylog('seg'), true); });
+  });
+  // ===== 临时诊断结束 =====
 
   el.comTrimReset.addEventListener('click', resetTrim);
 
