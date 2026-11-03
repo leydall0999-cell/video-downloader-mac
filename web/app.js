@@ -15217,7 +15217,7 @@ el.dwVidPlayer.hidden = true;
           comFeather.bandH = res.band_h_ratio;
           comFeatherSyncInputs();
         }
-        comFeatherSetState('ok', `已探测到原字幕（命中 ${res.hits}/${res.total} 帧）`);
+        comFeatherSetState('ok', `已探测 ${res.hits}/${res.total}`);
       } else {
         comFeather.found = false;
         if (!comFeather.manual) {
