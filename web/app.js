@@ -11387,9 +11387,9 @@ el.dwVidPlayer.hidden = true;
   const parseTimeSec = (raw) => {
     if (raw == null || String(raw).trim() === '') return null;
     const s = String(raw).trim();
-    // 先当纯数字秒数处理
+    // 先当纯数字秒数处理（2026-11-03：0 也合法，供「0:0:0＝不裁剪」固定模式归一）
     const asNum = Number(s);
-    if (!Number.isNaN(asNum) && asNum > 0) return asNum;
+    if (!Number.isNaN(asNum) && asNum >= 0) return asNum;
     // 时间格式 HH:MM:SS 或 MM:SS
     const parts = s.split(':').map((x) => Number(x.trim())).filter((x) => !Number.isNaN(x));
     if (parts.length === 2) {
@@ -11401,6 +11401,21 @@ el.dwVidPlayer.hidden = true;
       if (h >= 0 && m >= 0 && sec >= 0) return h * 3600 + m * 60 + sec;
     }
     return null;
+  };
+
+  // 2026-11-03 定稿：起点/终点固定「时:分:秒」模式——留空显示 0:00:00，
+  // 34分12秒 直接在对应位置填 0:34:12（不再按纯秒数填）；全 0 与留空等价＝不裁剪。
+  /** 秒 → 「h:mm:ss」（时不补零，与用户手写 0:34:12 的习惯一致；仅起点/终点输入框用）。 */
+  const formatDramaHMS = (sec) => {
+    sec = Math.max(0, Math.floor(Number(sec) || 0));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s2 = sec % 60;
+    return h + ':' + String(m).padStart(2, '0') + ':' + String(s2).padStart(2, '0');
+  };
+  /** 起点/终点输入 → 秒；留空或全 0（0:00:00）＝未设置（不裁剪），返回 null。 */
+  const comDramaSec = (input) => {
+    if (!input || !String(input.value || '').trim()) return null;
+    const sec = parseTimeSec(input.value);
+    return (sec != null && sec > 0) ? sec : null;
   };
 
   // 「起点/终点」外层裁剪 UI 已与「正剧开始/片尾开始时间」合并（trim 恒为整片、只有一处绝对时间），
@@ -11419,8 +11434,8 @@ el.dwVidPlayer.hidden = true;
     const skip_intro_outro = introOutroMode === 'skip';
     // 起点/终点：只要用户填了有效区间就生效，不再依赖「去片头片尾」开关。
     // 之前限定只在 skip 模式生效，导致「选了范围仍按全片出」（用户诉求：划定区间就按区间解说）。
-    const dramaStart = (el.comDramaStart && el.comDramaStart.value && el.comDramaStart.value.trim()) ? parseTimeSec(el.comDramaStart.value) : null;
-    const dramaEnd = (el.comDramaEnd && el.comDramaEnd.value && el.comDramaEnd.value.trim()) ? parseTimeSec(el.comDramaEnd.value) : null;
+    const dramaStart = comDramaSec(el.comDramaStart);
+    const dramaEnd = comDramaSec(el.comDramaEnd);
     const no_narrate_intro_outro = true; // 两个模式都不解说片头片尾（skip 模式已剪掉）
     return {
       commentary_type: typeEl ? typeEl.value : 'deep_hl',
@@ -13236,8 +13251,8 @@ el.dwVidPlayer.hidden = true;
   // 见 styles.css .com-trim-head 的注释）→ 标签信息改挂 title 悬停，窄栏里只留时间本身。
   const updateTrimDurationText = () => {
     if (!el.comTrimDuration) return;
-    const s = el.comDramaStart && el.comDramaStart.value.trim() ? parseTimeSec(el.comDramaStart.value) : null;
-    const e = el.comDramaEnd && el.comDramaEnd.value.trim() ? parseTimeSec(el.comDramaEnd.value) : null;
+    const s = comDramaSec(el.comDramaStart);
+    const e = comDramaSec(el.comDramaEnd);
     if (s != null && e != null && e <= s) {
       el.comTrimDuration.textContent = '⚠ 片尾开始需晚于正剧开始';
       el.comTrimDuration.title = '片尾开始时间必须晚于正剧开始时间';
@@ -13265,9 +13280,9 @@ el.dwVidPlayer.hidden = true;
   let comDramaSuggest = null;      // {lo, hi, dur} | null（轻量探测建议值）
   let comDramaSuggestSeq = 0;      // 换片竞态保护：旧请求迟到直接丢弃
   const COM_DRAMA_GATE_NOTE = '「保留片头片尾·不解说」：起点/终点<b>填了就按这段裁剪</b>（与「去片头片尾」无关），'
-    + '只是不额外去除片头片尾。留空＝不裁剪（按全片解说）。';
+    + '按「时:分:秒」填——34分12秒直接填 <b>0:34:12</b>。留空或全 0＝不裁剪（按全片解说）。';
   const COM_DRAMA_OPEN_NOTE = '「去片头片尾」：<b>留空＝自动检测</b>（读片名/集数画面+人声黑场，识别不到兜底跳过前 90 秒）；'
-    + '<b>填了就以你填的为准</b>（人工输入优先级最高，也可直接填秒数如 85）。预填的时间是系统探测到的建议值，可直接改。';
+    + '<b>填了就以你填的为准</b>——按「时:分:秒」填，34分12秒直接填 <b>0:34:12</b>。预填的时间是系统探测到的建议值，可直接改。';
   /** 向后端要轻量边界建议（媒体库/下载源才有 id；本地拖拽文件拿不到服务端路径，
    *  不预填、留给渲染时全量检测——避免拿 audio-only 的建议值盖掉更准的视觉识别）。 */
   const comDramaSuggestFetch = async (fidOverride) => {
@@ -13291,8 +13306,8 @@ el.dwVidPlayer.hidden = true;
     if (!comDramaSuggest) return false;
     const s = el.comDramaStart, e = el.comDramaEnd;
     let filled = false;
-    if (s && !s.value.trim() && comDramaSuggest.lo != null) { s.value = formatHMS(comDramaSuggest.lo); filled = true; }
-    if (e && !e.value.trim() && comDramaSuggest.hi != null) { e.value = formatHMS(comDramaSuggest.hi); filled = true; }
+    if (s && !s.value.trim() && comDramaSuggest.lo != null) { s.value = formatDramaHMS(comDramaSuggest.lo); filled = true; }
+    if (e && !e.value.trim() && comDramaSuggest.hi != null) { e.value = formatDramaHMS(comDramaSuggest.hi); filled = true; }
     if (filled) {
       if (typeof syncDramaSlider === 'function') { if (s) syncDramaSlider(s); if (e) syncDramaSlider(e); }
       updateTrimDurationText();
@@ -13309,11 +13324,12 @@ el.dwVidPlayer.hidden = true;
     if (!open) {
       // 非 skip：范围同样生效（起点/终点只要填了就裁剪，与「去片头片尾」开关无关），
       // 故不再清空用户手填值，只更新提示文案。
-      if (s) s.placeholder = '留空＝不裁剪';
-      if (e) e.placeholder = '留空＝不裁剪';
+      // 2026-11-03 固定「时:分:秒」模式：占位统一显示 0:00:00（留空/全 0 语义见下方说明文案）
+      if (s) s.placeholder = '0:00:00';
+      if (e) e.placeholder = '0:00:00';
     } else {
-      if (s) s.placeholder = '自动检测';
-      if (e) e.placeholder = '自动检测';
+      if (s) s.placeholder = '0:00:00（留空自动检测）';
+      if (e) e.placeholder = '0:00:00（留空自动检测）';
       if (comDramaStash.start || comDramaStash.end) {
         if (s && !s.value.trim()) s.value = comDramaStash.start;
         if (e && !e.value.trim()) e.value = comDramaStash.end;
@@ -15625,8 +15641,8 @@ el.dwVidPlayer.hidden = true;
       //    中间 15 分钟，预检仍按 45 分钟算（免费档可能被误拦），而真正跑起来又只处理 15 分钟。
       if (comTrimStart > 0) qs.set('trim_start', String(comTrimStart));
       if (comTrimEnd > 0) qs.set('trim_end', String(comTrimEnd));
-      const _dStart = el.comDramaStart && el.comDramaStart.value ? parseTimeSec(el.comDramaStart.value) : null;
-      const _dEnd = el.comDramaEnd && el.comDramaEnd.value ? parseTimeSec(el.comDramaEnd.value) : null;
+      const _dStart = comDramaSec(el.comDramaStart);
+      const _dEnd = comDramaSec(el.comDramaEnd);
       if (_dStart) qs.set('drama_start_sec', String(_dStart));
       if (_dEnd) qs.set('drama_end_sec', String(_dEnd));
       // 带上「界面上当前选中的档位」而不是让后端只读已保存配置：用户可能先切档位、
@@ -16038,8 +16054,9 @@ el.dwVidPlayer.hidden = true;
     const raw = input.value.trim();
     if (!raw) { input.value = ''; updateTrimDurationText(); return; }
     const sec = parseTimeSec(raw);
-    // 认得出就统一成 HH:MM:SS（引擎两个写法都吃，统一了更好核对片长）；认不出则原样留给后端报错
-    if (sec != null) input.value = formatHMS(sec);
+    // 认得出就统一成固定的「时:分:秒」（如 0:34:12；全 0 归一为 0:00:00，语义＝不裁剪）；
+    // 认不出则原样留给后端报错
+    if (sec != null) input.value = formatDramaHMS(sec);
     syncDramaSlider(input);
     updateTrimDurationText();
   };
@@ -16056,7 +16073,7 @@ el.dwVidPlayer.hidden = true;
   if (el.comDramaStartRange) {
     el.comDramaStartRange.addEventListener('input', () => {
       const v = parseFloat(el.comDramaStartRange.value) || 0;
-      el.comDramaStart.value = formatHMS(Math.max(0, Math.floor(v)));
+      el.comDramaStart.value = formatDramaHMS(Math.max(0, Math.floor(v)));
       updateTrimDurationText();
     });
     el.comDramaStartRange.addEventListener('change', () => document.dispatchEvent(new CustomEvent('vdl:com-precheck-refresh')));
@@ -16064,7 +16081,7 @@ el.dwVidPlayer.hidden = true;
   if (el.comDramaEndRange) {
     el.comDramaEndRange.addEventListener('input', () => {
       const v = parseFloat(el.comDramaEndRange.value) || 0;
-      el.comDramaEnd.value = formatHMS(Math.max(0, Math.floor(v)));
+      el.comDramaEnd.value = formatDramaHMS(Math.max(0, Math.floor(v)));
       updateTrimDurationText();
     });
     el.comDramaEndRange.addEventListener('change', () => document.dispatchEvent(new CustomEvent('vdl:com-precheck-refresh')));
@@ -16230,8 +16247,8 @@ el.dwVidPlayer.hidden = true;
   /** 两枚正剧把手贴到当前区间两端（跟随滑块/输入框/清空/脚本重绘）。 */
   const comTlPlaceHandles = () => {
     const dur = comTlDur();
-    const s = parseTimeSec(el.comDramaStart.value);
-    const e2 = parseTimeSec(el.comDramaEnd.value);
+    const s = comDramaSec(el.comDramaStart);
+    const e2 = comDramaSec(el.comDramaEnd);
     const put = (h, sec, dflt) => {
       if (!h) return;
       h.hidden = !dur;
@@ -16584,8 +16601,8 @@ el.dwVidPlayer.hidden = true;
   const comTlSync = () => {
     const dur = parseFloat(el.comDramaEndRange && el.comDramaEndRange.max) || 0;
     const hasDur = !!dur && isFinite(dur);
-    const s = parseTimeSec(el.comDramaStart.value);
-    const e2 = parseTimeSec(el.comDramaEnd.value);
+    const s = comDramaSec(el.comDramaStart);
+    const e2 = comDramaSec(el.comDramaEnd);
     if (comTlRoot) comTlRoot.classList.toggle('is-empty', !hasDur);
     // 原声轨：正剧区间高亮（区间外＝被剪掉的头尾，留在暗底上）
     if (comTlDrama) {
