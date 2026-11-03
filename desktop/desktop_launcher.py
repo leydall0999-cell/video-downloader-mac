@@ -2131,6 +2131,7 @@ class VdlApi:
         """真正退出软件（仅当用户在窗口内显式点击「退出」按钮时调用）。"""
         global _quitting
         _quitting = True  # 标记正在退出，让 closing 拦截器放行
+        _kill_douyin_engine()  # 带走内嵌解析浏览器（os._exit 会跳过 atexit 清理）
         os._exit(0)       # 强制退出（不经过 closing 事件循环）
 
     def trigger_update(self, version: str, token: str = None) -> dict:
@@ -2532,6 +2533,42 @@ _extra_paths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr
 for _p in reversed(_extra_paths):
     if _p not in os.environ.get("PATH", "").split(os.pathsep):
         os.environ["PATH"] = _p + os.pathsep + os.environ.get("PATH", "")
+
+def _kill_douyin_engine() -> None:
+    """退出前关掉「抖音解析用」的内嵌 Chromium。
+
+    🔴 2026-11-03 实测缺陷：App 退出后 `chrome-headless-shell` 仍有 **5 个进程**
+    驻留（活动监视器里能看到「关掉的 App 还在后台跑」，白占约 200MB）。
+    成因有两层：① 浏览器是 server 进程的子进程，父进程被 os._exit/SIGTERM 带走时
+    不会连带终止；② 桌面外壳的退出路径用 `os._exit(0)` 强制退出，**atexit 不执行**，
+    Python 侧的兜底清理形同不存在。
+    所以只能在退出路径上**主动按进程特征杀干净**，且不 import server 侧模块
+    （退出路径上 import 整条 server 依赖既不必要也不可靠）。
+
+    匹配用 profile 目录名 `douyin-cdp-profile`（唯一，只属于本应用）+ 内嵌浏览器
+    进程名兜底（父进程先死、子进程可能残留一瞬）。Windows 侧将来若也内嵌，
+    `chrome-headless-shell.exe` 走同一行判断。
+    """
+    try:
+        if sys.platform == "win32":
+            for img in ("chrome-headless-shell.exe",):
+                try:
+                    subprocess.run(["taskkill", "/F", "/T", "/IM", img],
+                                   stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, timeout=5)
+                except Exception:
+                    pass
+            return
+        for pat in ("douyin-cdp-profile", "chrome-headless-shell"):
+            try:
+                subprocess.run(["pkill", "-f", pat],
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=5)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 
 def _launch_log(msg: str) -> None:
     """把启动关键节点写入 ~/.vdl_launch.log，便于「双击打不开」时定位。"""
@@ -3803,6 +3840,9 @@ def main() -> None:
             - Dock Quit / Cmd+Q（_app_terminating）或 显式「退出」按钮（_quitting）→ 放行退出
             """
             if _quitting or _app_terminating:
+                # Cmd+Q / Dock Quit 也走这里：内嵌 Chromium 不会随父进程自然终止，
+                # 必须显式收尾，否则用户关了 App 还能在活动监视器看到它（2026-11-03 实测）。
+                _kill_douyin_engine()
                 return True  # 正在退出，放行
             try:
                 window.minimize()

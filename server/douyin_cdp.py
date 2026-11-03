@@ -1136,3 +1136,15 @@ def close_chrome() -> None:
                 except Exception:
                     pass
     _PROC["proc"] = None
+
+
+# ── 进程退出兜底（2026-11-03）───────────────────────────────────────────────
+# 🔴 桌面外壳的退出走 `os._exit(0)`，**atexit 不会执行** ⇒ GUI 侧另在
+# desktop_launcher._kill_douyin_engine() 显式收尾（覆盖前端退出按钮 / Cmd+Q /
+# Dock Quit）。这里只覆盖「server 进程自己正常结束」的场景：开发态调试、
+# CLI 调用、uvicorn 优雅停机 —— 否则测试跑完会留下一堆 headless 进程。
+# 注册 `_kill_chrome`（纯进程操作，不发网络请求）而不是 `close_chrome`
+# （后者要先写 Cookie 快照，在解释器退出阶段做文件/网络 IO 不可靠）。
+import atexit as _atexit
+
+_atexit.register(_kill_chrome)
