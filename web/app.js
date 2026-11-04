@@ -26146,7 +26146,7 @@ el.dwVidPlayer.hidden = true;
     // 这里一键交给系统浏览器（WKWebView 拦 window.open，故走 _openExternalUrl 原生桥）。
     // 带 #platform-health：网页后台加载完自动滚到该面板，省掉「还要往下翻两屏」。
     if (webConsoleBtn) webConsoleBtn.addEventListener('click', () => {
-      _openExternalUrl('https://hanyuxz.top/admin/#platform-health');
+      _openExternalUrl('https://ops.hanyuxz.top/admin/#platform-health');
     });
     if (gateClose) gateClose.addEventListener('click', closeAdmin);
     if (sTabAdmin) sTabAdmin.addEventListener('click', openAdmin);
