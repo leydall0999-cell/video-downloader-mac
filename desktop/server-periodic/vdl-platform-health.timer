@@ -1,0 +1,15 @@
+[Unit]
+Description=VDL 平台健康巡检 定时器（每天 04:30 / 16:30）
+Documentation=https://github.com/leydall0999-cell/video-downloader-app
+
+[Timer]
+# 与原 root crontab 的两条 `30 4/16 * * *` 等价，改用 systemd timer 更稳、可 git 托管。
+OnCalendar=*-*-* 04:30:00
+OnCalendar=*-*-* 16:30:00
+Persistent=true
+Unit=vdl-platform-health.service
+# 错峰 37s，避免与同机其他定时任务（bili cookie 等）抢 Python 启动
+RandomizedDelaySec=37
+
+[Install]
+WantedBy=timers.target

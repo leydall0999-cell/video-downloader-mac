@@ -1,0 +1,11 @@
+[Unit]
+Description=VDL 平台健康巡检 (platform_health_check.py)
+Documentation=https://github.com/leydall0999-cell/video-downloader-app
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/vdl-worker
+ExecStart=/opt/vdl-worker/.venv/bin/python /opt/vdl-worker/platform_health_check.py
+# 巡检脚本自带告警推送（_notify）与证据落盘（data/platform_health.json），无需 Restart。
