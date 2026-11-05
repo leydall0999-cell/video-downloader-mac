@@ -1656,8 +1656,12 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
 }
 .com-steps-now::before { content: '▸ '; }
 .com-steps-panel[open] .com-steps-now::before { content: '▾ '; }
-.com-steps-toggle-label { flex: 0 0 auto; color: var(--brand); font-weight: 600; }
-.com-steps-panel[open] .com-steps-toggle-label { visibility: hidden; }
+.com-steps-toggle-label { flex: 0 0 auto; color: var(--brand); font-weight: 600; cursor: pointer; }
+/* 2026-11-06 用户「步骤明细查看不能收起」：展开态不再把标签藏起来。
+   旧规则 visibility:hidden 让 summary 只剩一行状态文字，看不出可点，用户以为收不起来。
+   现在标签常显、由 JS 切成「收起 ⇧」，鼠标悬停加下划线提示可点。 */
+.com-steps-panel[open] .com-steps-toggle-label { visibility: visible; color: var(--text-mute); }
+.com-steps-panel > summary.com-steps-summary:hover .com-steps-toggle-label { text-decoration: underline; }
 .com-steps-panel .com-steps { max-height: 34vh; overflow: auto; margin-top: .45rem; }
 .com-logs-wrap { margin-top: .5rem; }
 .com-logs-wrap summary { font-size: .8rem; color: var(--text-mute); cursor: pointer; user-select: none; }

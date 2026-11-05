@@ -11356,6 +11356,27 @@ el.dwVidPlayer.hidden = true;
     el.comArtifact.title = last;
   };
 
+  // 2026-11-06 用户反馈「步骤明细查看不能收起」：旧 CSS 在 <details open> 时把
+  // 「步骤明细」标签 visibility:hidden，展开后 summary 只剩一行「第 x/y 步 · …」状态文字，
+  // 用户看不出这里可点，以为收不起来。这里让标签常显、随开合切换文案，并给标签挂
+  // 显式开合（stopPropagation 避免与 summary 原生切换叠加成「点了没反应」）。
+  if (el.comStepsPanel) {
+    const _sp = el.comStepsPanel;
+    const _tl = $('comStepsToggleLabel') || _sp.querySelector('.com-steps-toggle-label');
+    const _syncComStepsLabel = () => {
+      if (_tl) _tl.textContent = _sp.open ? '收起 ⇧' : '步骤明细';
+    };
+    _sp.addEventListener('toggle', _syncComStepsLabel);
+    if (_tl) {
+      _tl.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        _sp.open = !_sp.open;
+      });
+    }
+    _syncComStepsLabel();
+  }
+
   const renderComSteps = (st) => {
     const steps = Array.isArray(st.steps) ? st.steps : [];
     const logs = Array.isArray(st.logs) ? st.logs : [];
