@@ -11138,7 +11138,9 @@ el.dwVidPlayer.hidden = true;
    *  同一个 job 只播报一次（重复轮询/回看历史都不会重弹）。
    *  2026-09-20 追加 ④：弹一个**模态**窗口（comDoneShow），因为 toast 会被错过。 */
   const _comAnnounced = new Set();
-  const comAnnounceFinished = async (jobId, name, refs) => {
+  // bill = 本次任务启动时锁定的预检账单 {cost, units}（见 pollCommentaryJob）。
+  // 完成时用它生成「预知 / 实扣」两行，避免任务跑动中用户改范围串到这一单的数字。
+  const comAnnounceFinished = async (jobId, name, refs, bill) => {
     if (!jobId || _comAnnounced.has(jobId)) return;
     _comAnnounced.add(jobId);
     const api = window.pywebview && window.pywebview.api;
@@ -11159,10 +11161,32 @@ el.dwVidPlayer.hidden = true;
         const saved = res.split('/').pop() || name;
         say(`🎬 解说成片已完成，已保存到「下载」：${saved}`, 9000);
         if (refs && refs.commentaryStatus) {
-          // ⚠️ 追加而不是覆盖：本函数在 onCompleted() 之后才跑完，而 onCompleted 会往同一行写
-          // 「成片已完成…点『📄 继续审核』可回到脚本再渲染一版」（见调用点）。直接赋值会把它抹掉。
+          // 🔴 2026-11-05 用户要求「渲染前预知扣多少积分、渲染完成实际扣了多少积分」：
+          //   · 「预知」行 = 任务启动那一刻锁定的账单，跑完仍保留，前后两个数可对照；
+          //   · 「实扣」行 = 用户指定的完成句式「本次消耗N积分(按X个半小时计),已保存到"下载":文件名」；
+          //   · 两处金额同源：后端 precheck_or_raise → job["billing"] →
+          //     charge_commentary_on_success 与预检共用 commentary_credit_total /
+          //     commentary_billing_units 同一组函数；不足半小时向上取整由后端保证，这里只展示、不改计费。
+          //   · ⚠️ 其它行必须保留：onCompleted 会往同一状态框写「点『📄 继续审核』…」，
+          //     直接整体赋值会把它抹掉（历史踩坑）。
+          const _b = bill || refs.commentaryStatus.dataset || {};
+          const cost = Number(_b.cost != null ? _b.cost : (_b.creditCost || 0)) || 0;
+          const units = Number(_b.units != null ? _b.units : (_b.creditUnits || 0)) || 0;
+          const preLine = cost > 0
+            ? `本次将消耗 ${cost} 积分${units > 1 ? `（按 ${units} 个半小时计）` : ''}。`
+            : '';
+          const costPart = cost > 0
+            ? `本次消耗${cost}积分${units > 1 ? `(按${units}个半小时计)` : ''},`
+            : '';
+          const doneLine = `${costPart}已保存到"下载":${saved}`;
           const prev = refs.commentaryStatus.textContent || '';
-          refs.commentaryStatus.textContent = (prev ? prev + '\n' : '') + `已保存到「下载」：${saved}`;
+          const kept = prev.split('\n')
+            .filter((l) => !/本次将消耗|本次消耗|已保存到[「"]下载[」"]/.test(l)).join('\n');
+          const lines = [];
+          if (preLine) lines.push(preLine);
+          if (kept) lines.push(kept);
+          lines.push(doneLine);
+          refs.commentaryStatus.textContent = lines.join('\n');
         }
         // 「位置」优先显示刚另存成功的那条路径（最贴近用户此刻关心的「文件在哪」）
         comDoneShow({
@@ -11182,8 +11206,24 @@ el.dwVidPlayer.hidden = true;
   };
 
   // 通用轮询：拿到 job_id 后定时查状态，更新 refs（commentary 按钮 / status / file 链接）。
-  const pollCommentaryJob = (job_id, refs, base = '', onCompleted = null) => {    refs.commentaryStatus.hidden = false;
-    refs.commentaryStatus.textContent = '正在生成解说成片，长视频可能需数分钟…';
+  const pollCommentaryJob = (job_id, refs, base = '', onCompleted = null) => {
+    // 🔴 2026-11-05 任务启动这一刻把预检账单锁定成「本单快照」：渲染前预知 /
+    //    渲染完成实扣两处都用它，任务跑动中用户再改范围或切页都不会串数。
+    //    三级兜底：全局桥（跨 IIFE）→ 本状态框 dataset → 主面板 el.comStatus dataset
+    //    （下载库入口用的状态框是 libCommentaryStatus，dataset 挂在主面板上）。
+    const _g = window.__vdlComBill;
+    const _ds = refs.commentaryStatus.dataset || {};
+    const _mainDs = (el.comStatus && el.comStatus.dataset) || {};
+    const jobBill = {
+      cost: Number((_g && _g.cost) || _ds.creditCost || _mainDs.creditCost || 0) || 0,
+      units: Number((_g && _g.units) || _ds.creditUnits || _mainDs.creditUnits || 0) || 0,
+    };
+    refs.commentaryStatus.hidden = false;
+    // 渲染中也别把「预知」那行抹掉 —— 用户要能一路对照到完成。
+    const _preTip = jobBill.cost > 0
+      ? `本次将消耗 ${jobBill.cost} 积分${jobBill.units > 1 ? `（按 ${jobBill.units} 个半小时计）` : ''}。`
+      : '';
+    refs.commentaryStatus.textContent = (_preTip ? _preTip + '\n' : '') + '正在生成解说成片，长视频可能需数分钟…';
     let shownProgress = 0;  // 已显示过的进度行数，避免重复追加
     const poll = setInterval(async () => {
       try {
@@ -11207,7 +11247,7 @@ el.dwVidPlayer.hidden = true;
           if (typeof onCompleted === 'function') onCompleted();
           resetComSelects();
           // 完成播报 + 自动另存到「下载」（用户 2026-09-20：「解说完成怎么默不作声呢」）
-          comAnnounceFinished(job_id, outName, refs);
+          comAnnounceFinished(job_id, outName, refs, jobBill);
         } else if (st.status === 'failed') {
           clearInterval(poll);
           refs.commentaryStatus.textContent = `生成失败：${st.error || '未知错误'}`;
@@ -15612,6 +15652,20 @@ el.dwVidPlayer.hidden = true;
     //    （50 积分/半小时，不足半小时按半小时）。选完视频就能看到价钱，
     //    不用等扣费失败或跑完才知道。与扣费点同源（routers/quota.py 同一组函数）。
     let costTip = '';
+    // 🔴 2026-11-05「渲染前预知扣多少积分 / 渲染完成实际扣了多少积分」：预检账单要喂给两处 ——
+    //   ① 状态框自身 dataset（本作用域展示「预知」行用）；
+    //   ② window.__vdlComBill 跨 IIFE 桥：pollCommentaryJob / comAnnounceFinished 在另一段作用域，
+    //      且下载库入口用的是 el.libCommentaryStatus（不是 el.comStatus），读不到这里的 dataset。
+    //   轮询启动时会按任务把它快照下来，任务跑动中用户再改范围也不会串到这一单的实扣数。
+    if (!blocked && res.credit_cost > 0) {
+      el.comStatus.dataset.creditCost = String(res.credit_cost);
+      el.comStatus.dataset.creditUnits = String(res.credit_units || 1);
+      window.__vdlComBill = { cost: Number(res.credit_cost), units: Number(res.credit_units || 1) };
+    } else {
+      delete el.comStatus.dataset.creditCost;
+      delete el.comStatus.dataset.creditUnits;
+      window.__vdlComBill = null;
+    }
     if (!blocked && res.credit_cost > 0) {
       // 🔴 2026-10-26 文案澄清：「5 个半小时」曾被读成「5.5 小时」——改为明确口吻
       const _u = res.credit_units > 1 ? `（按 ${res.credit_units} 个半小时计）` : '';
