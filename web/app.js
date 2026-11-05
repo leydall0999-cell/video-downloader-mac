@@ -11139,7 +11139,7 @@ el.dwVidPlayer.hidden = true;
    *  2026-09-20 追加 ④：弹一个**模态**窗口（comDoneShow），因为 toast 会被错过。 */
   const _comAnnounced = new Set();
   // bill = 本次任务启动时锁定的预检账单 {cost, units}（见 pollCommentaryJob）。
-  // 完成时用它生成「预知 / 实扣」两行，避免任务跑动中用户改范围串到这一单的数字。
+  // 完成时只用它生成「实扣」行；「预知」行在解说前/渲染中显示，完成后不显示。
   const comAnnounceFinished = async (jobId, name, refs, bill) => {
     if (!jobId || _comAnnounced.has(jobId)) return;
     _comAnnounced.add(jobId);
@@ -11162,7 +11162,8 @@ el.dwVidPlayer.hidden = true;
         say(`🎬 解说成片已完成，已保存到「下载」：${saved}`, 9000);
         if (refs && refs.commentaryStatus) {
           // 🔴 2026-11-05 用户要求「渲染前预知扣多少积分、渲染完成实际扣了多少积分」：
-          //   · 「预知」行 = 任务启动那一刻锁定的账单，跑完仍保留，前后两个数可对照；
+          //   · 「预知」行「本次将消耗 N 积分」只在解说前/渲染中显示（comApplyPrecheck 的
+          //     costTip、pollCommentaryJob 的 _preTip），解说完成后不再显示，状态框只留实扣完成句；
           //   · 「实扣」行 = 用户指定的完成句式「本次消耗N积分(按X个半小时计),已保存到"下载":文件名」；
           //   · 两处金额同源：后端 precheck_or_raise → job["billing"] →
           //     charge_commentary_on_success 与预检共用 commentary_credit_total /
@@ -11172,18 +11173,15 @@ el.dwVidPlayer.hidden = true;
           const _b = bill || refs.commentaryStatus.dataset || {};
           const cost = Number(_b.cost != null ? _b.cost : (_b.creditCost || 0)) || 0;
           const units = Number(_b.units != null ? _b.units : (_b.creditUnits || 0)) || 0;
-          const preLine = cost > 0
-            ? `本次将消耗 ${cost} 积分${units > 1 ? `（按 ${units} 个半小时计）` : ''}。`
-            : '';
           const costPart = cost > 0
             ? `本次消耗${cost}积分${units > 1 ? `(按${units}个半小时计)` : ''},`
             : '';
           const doneLine = `${costPart}已保存到"下载":${saved}`;
           const prev = refs.commentaryStatus.textContent || '';
+          // 完成态一律清掉预知行与旧的完成行，避免「本次将消耗」在解说完后还留着
           const kept = prev.split('\n')
             .filter((l) => !/本次将消耗|本次消耗|已保存到[「"]下载[」"]/.test(l)).join('\n');
           const lines = [];
-          if (preLine) lines.push(preLine);
           if (kept) lines.push(kept);
           lines.push(doneLine);
           refs.commentaryStatus.textContent = lines.join('\n');
