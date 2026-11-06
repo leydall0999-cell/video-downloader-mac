@@ -2238,34 +2238,27 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
   html.sidebar-collapsed main#main { margin-left: 0; }
   html.sidebar-collapsed .site-header { padding-left: 0; }
 
-  /* 侧栏顶部：叠在「首页」按钮上层的浮标。absolute 不占 flex 行 → 不再挤压
-     首页按钮高度；z-index 高于侧栏内容 = 「叠在上层」；随 .sidebar 一起滑出。 */
+  /* 侧栏右上角：纯线条收起图标（三横线，中间一条为左箭头）。
+     位于首页按钮上方的顶部留白区内、与首页按钮不叠压；absolute 不占 flex 行 →
+     不挤压首页按钮高度（避免被压扁）；随 .sidebar 一起滑出。 */
   .sidebar-collapse-bar {
     position: absolute;
-    top: 1.45rem;
-    right: .55rem;
-    z-index: 6;
+    top: .55rem;
+    right: .5rem;
     display: flex; justify-content: flex-end;
     padding: 0; margin: 0;
   }
   .sidebar-collapse-btn {
-    display: inline-flex; align-items: center; gap: .3rem;
-    padding: .28rem .5rem;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: rgba(255,255,255,.55);
-    color: var(--text-mute);
-    font: inherit; font-size: .72rem; font-weight: 600;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; padding: 0;
+    border: 0; border-radius: 6px;
+    background: transparent;
+    color: var(--text);
     cursor: pointer;
-    white-space: nowrap;
-    transition: background .18s ease, color .18s ease, border-color .18s ease;
+    transition: color .18s ease;
   }
-  .sidebar-collapse-btn:hover {
-    background: var(--brand-soft, #eef0ff);
-    color: var(--brand);
-    border-color: var(--brand);
-  }
-  .sidebar-collapse-btn > span[aria-hidden="true"] { font-size: 1rem; line-height: 1; }
+  .sidebar-collapse-btn:hover { color: var(--brand); }
+  .sidebar-collapse-btn svg { display: block; width: 20px; height: 20px; }
 
   /* 收起后贴左边缘的展开小拉手（沿用解说页 .com-edge-tab 的语言，但 fixed 不随内容滚走） */
   .sidebar-reopen {
@@ -7096,9 +7089,9 @@ html.theme-dark .sidebar {
 }
 /* 左侧导航收起按钮 / 展开小拉手（深色） */
 html.theme-dark .sidebar-collapse-btn {
-  background: rgba(255,255,255,.06); color: var(--text-mute); border-color: var(--line);
+  background: transparent; color: var(--text);
 }
-html.theme-dark .sidebar-collapse-btn:hover { background: var(--brand-soft); color: var(--brand); }
+html.theme-dark .sidebar-collapse-btn:hover { color: var(--brand); }
 html.theme-dark .sidebar-reopen {
   background: #20232b; color: var(--brand); border-color: var(--line);
   box-shadow: 2px 2px 8px rgba(0,0,0,.35);
