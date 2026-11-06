@@ -2226,7 +2226,8 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
      状态挂在 <html> 的 .sidebar-collapsed（head 内联脚本提前套用，刷新不闪）。
      侧栏整体 translateX(-100%) 滑出，main / header 的 200px 让位同步归零；
      收起后贴左边缘的 .sidebar-reopen 小拉手是唯一展开出口。 */
-  .sidebar { transition: transform .24s ease; }
+  /* 收起按钮改为浮层后不再占 flex 行；顶部内距让给浮标，首页按钮位置基本不变 */
+  .sidebar { transition: transform .24s ease; padding-top: 2.9rem; }
   html.sidebar-collapsed .sidebar {
     transform: translateX(-100%);
     pointer-events: none;
@@ -2237,11 +2238,15 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
   html.sidebar-collapsed main#main { margin-left: 0; }
   html.sidebar-collapsed .site-header { padding-left: 0; }
 
-  /* 侧栏顶部：右对齐的「« 收起导航」小按钮 */
+  /* 侧栏顶部：叠在「首页」按钮上层的浮标。absolute 不占 flex 行 → 不再挤压
+     首页按钮高度；z-index 高于侧栏内容 = 「叠在上层」；随 .sidebar 一起滑出。 */
   .sidebar-collapse-bar {
+    position: absolute;
+    top: 1.45rem;
+    right: .55rem;
+    z-index: 6;
     display: flex; justify-content: flex-end;
-    padding: 0 .25rem .1rem;
-    margin-bottom: -.45rem;
+    padding: 0; margin: 0;
   }
   .sidebar-collapse-btn {
     display: inline-flex; align-items: center; gap: .3rem;
@@ -5197,6 +5202,9 @@ html.theme-dark .sb-tab:hover, html.theme-dark .sb-copy:hover { color: #C7D2FE; 
    这里给它补齐顶级入口的结构与节奏：恢复图标 + 左右缩进对齐分组行
    （.sidebar-group 有 .3rem 横向内距，首页没有，必须补 margin 才能同列）。 */
 .sidebar-item.sidebar-home {
+  /* 2026-11-06：矮窗口侧栏内容超出时，flex 默认会压缩子项把「首页」压成一条细线；
+     顶级入口固定高度，超出改由侧栏自身滚动（overflow-y:auto）承载。 */
+  flex-shrink: 0;
   margin-left: .3rem;
   margin-right: .3rem;
   width: auto;                  /* 基础样式是 width:100%，加了左右 margin 会右溢 9.6px 被裁掉 */
