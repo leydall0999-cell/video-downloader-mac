@@ -2221,6 +2221,66 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
   /* 2026-09-08 header 同步偏移 200px：header 的 .wrap 与 main 的 .wrap 必须同基准居中，
      否则右上角「会员中心」按钮右缘与下方卡片右缘错开 ~100px（main 有 margin-left 而 header 没有） */
   .site-header { padding-left: 200px; }
+
+  /* ===== 2026-11-03 左侧导航「向左收起」 =====
+     状态挂在 <html> 的 .sidebar-collapsed（head 内联脚本提前套用，刷新不闪）。
+     侧栏整体 translateX(-100%) 滑出，main / header 的 200px 让位同步归零；
+     收起后贴左边缘的 .sidebar-reopen 小拉手是唯一展开出口。 */
+  .sidebar { transition: transform .24s ease; }
+  html.sidebar-collapsed .sidebar {
+    transform: translateX(-100%);
+    pointer-events: none;
+  }
+  main#main, .site-header {
+    transition: margin-left .24s ease, padding-left .24s ease;
+  }
+  html.sidebar-collapsed main#main { margin-left: 0; }
+  html.sidebar-collapsed .site-header { padding-left: 0; }
+
+  /* 侧栏顶部：右对齐的「« 收起导航」小按钮 */
+  .sidebar-collapse-bar {
+    display: flex; justify-content: flex-end;
+    padding: 0 .25rem .1rem;
+    margin-bottom: -.45rem;
+  }
+  .sidebar-collapse-btn {
+    display: inline-flex; align-items: center; gap: .3rem;
+    padding: .28rem .5rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: rgba(255,255,255,.55);
+    color: var(--text-mute);
+    font: inherit; font-size: .72rem; font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .18s ease, color .18s ease, border-color .18s ease;
+  }
+  .sidebar-collapse-btn:hover {
+    background: var(--brand-soft, #eef0ff);
+    color: var(--brand);
+    border-color: var(--brand);
+  }
+  .sidebar-collapse-btn > span[aria-hidden="true"] { font-size: 1rem; line-height: 1; }
+
+  /* 收起后贴左边缘的展开小拉手（沿用解说页 .com-edge-tab 的语言，但 fixed 不随内容滚走） */
+  .sidebar-reopen {
+    display: none;
+    position: fixed; left: 0; top: 76px; z-index: 12;
+    width: 26px; height: 46px;
+    align-items: center; justify-content: center;
+    padding: 0;
+    border: 1px solid var(--line); border-left: 0;
+    border-radius: 0 10px 10px 0;
+    background: rgba(255,255,255,.9);
+    color: var(--brand);
+    font: inherit; font-size: 1rem; font-weight: 700; line-height: 1;
+    cursor: pointer;
+    box-shadow: 2px 2px 8px rgba(15,23,42,.12);
+    transition: background .18s ease, width .18s ease;
+  }
+  html.sidebar-collapsed .sidebar-reopen { display: flex; }
+  .sidebar-reopen:hover { background: var(--brand-soft, #eef0ff); width: 30px; }
+  .sidebar-reopen > span[aria-hidden="true"] { pointer-events: none; }
 }
 
 /* ---------------- 媒体库（桌面版功能） ---------------- */
@@ -2231,6 +2291,8 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
 @media (max-width: 900px) {
   /* 移动端：保留原顶部 tabs（上一版修复），隐藏侧栏 */
   .sidebar { display: none !important; }
+  /* 收起态的小拉手在窄屏也别露出来（侧栏本来就不显示，收起无从谈起） */
+  .sidebar-reopen { display: none !important; }
 }
 
 .tabs {
@@ -7024,6 +7086,16 @@ html.theme-dark .sidebar {
   border-right-color: var(--line);
   box-shadow: inset -1px 0 0 rgba(255,255,255,.04);
 }
+/* 左侧导航收起按钮 / 展开小拉手（深色） */
+html.theme-dark .sidebar-collapse-btn {
+  background: rgba(255,255,255,.06); color: var(--text-mute); border-color: var(--line);
+}
+html.theme-dark .sidebar-collapse-btn:hover { background: var(--brand-soft); color: var(--brand); }
+html.theme-dark .sidebar-reopen {
+  background: #20232b; color: var(--brand); border-color: var(--line);
+  box-shadow: 2px 2px 8px rgba(0,0,0,.35);
+}
+html.theme-dark .sidebar-reopen:hover { background: #2a2e38; }
 html.theme-dark .sidebar-cookie-sync button {
   background: linear-gradient(135deg, var(--brand-soft), #20232b);
   border-color: var(--line); color: var(--text);
