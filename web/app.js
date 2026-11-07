@@ -16310,34 +16310,6 @@ el.dwVidPlayer.hidden = true;
     });
   });
 
-  // ===== 临时诊断（2026-11-03 数字翻倍排查，定位后整段删除）=====
-  const _vdlKeylog = (tag) => (ev) => {
-    try {
-      const t = ev.target;
-      const rec = { tag, type: ev.type, key: ev.key, code: ev.code,
-        repeat: !!ev.repeat, isComposing: !!ev.isComposing, keyCode: ev.keyCode,
-        inputType: ev.inputType, data: ev.data, t: Date.now() };
-      if (t && t.value != null) rec.value = t.value;
-      if (t && t.selectionStart != null) rec.sel = [t.selectionStart, t.selectionEnd];
-      (window.__vdlKeyLog = window.__vdlKeyLog || []).push(rec);
-      try {   // 剪贴板回传（网络通道在 WKWebView 里可能被拦，剪贴板最稳）
-        const _api = window.pywebview && window.pywebview.api;
-        if (_api && _api.copy_to_clipboard) _api.copy_to_clipboard(JSON.stringify(window.__vdlKeyLog));
-      } catch (e2) { /* 诊断埋点 */ }
-      fetch('http://127.0.0.1:8399/log', { method: 'POST', keepalive: true,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(rec) }).catch(() => {});
-    } catch (e) { /* 诊断埋点，绝不影响主流程 */ }
-  };
-  ['keydown', 'keyup', 'beforeinput', 'input', 'compositionstart', 'compositionend']
-    .forEach((ty) => { document.addEventListener(ty, _vdlKeylog('doc'), true); });
-  [el.comDramaStart, el.comDramaEnd].forEach((inp) => {
-    if (!inp) return;
-    ['keydown', 'keyup', 'beforeinput', 'input', 'compositionstart', 'compositionend']
-      .forEach((ty) => { inp.addEventListener(ty, _vdlKeylog('seg'), true); });
-  });
-  // ===== 临时诊断结束 =====
-
   el.comTrimReset.addEventListener('click', resetTrim);
 
   // ===== v2 剪映式改版（2026-09-17）：历史面板 / 时间轴同步 / 窄窗口检查器抽屉 =====
