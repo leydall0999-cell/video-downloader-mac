@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException
+from fastapi.responses import FileResponse
 
 router = APIRouter()
 
@@ -190,3 +191,28 @@ def bgm_fetch(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         os.replace(str(tmp), str(target))       # 原子落盘，杜绝半截文件
     return {"ok": True, "cached": False, "path": str(target),
             "name": track["name"], "sha256": expected}
+
+
+@router.get("/api/commentary/bgm/preview")
+def bgm_preview(id: str = "") -> Any:
+    """已下载曲目的本地试听流。
+
+    按曲目 id 取路径，不接受任何客户端路径参数 —— 既避开被
+    /api/commentary/{job_id} 抢占的通用 audio-preview，也杜绝任意文件读取。
+    断网时已下载曲目照样能试听。
+    """
+    if not BGM_ID_RE.match(id or ""):
+        raise HTTPException(status_code=400, detail="曲目 id 不合法")
+    lib = _read_cached_library()
+    track = next((t for t in _normalize_tracks(lib) if t["id"] == id), None)
+    if not track:
+        raise HTTPException(status_code=404, detail="曲库里没有这首曲子，请先刷新曲库")
+    local, path = _local_state(track)
+    if not local:
+        raise HTTPException(status_code=404, detail="这首曲子还没下载到本机")
+    suffix = Path(track["file"]).suffix.lower()
+    media = {
+        ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav",
+        ".aac": "audio/aac", ".flac": "audio/flac", ".ogg": "audio/ogg",
+    }.get(suffix, "application/octet-stream")
+    return FileResponse(path=path, filename=track["file"], media_type=media)

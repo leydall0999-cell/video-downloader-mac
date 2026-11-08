@@ -208,6 +208,22 @@ def main():
        and "app.include_router(_bgm_cloud_rtr.router)" in app_py)
     ok("路由清单含两个端点", any("/api/commentary/bgm/library" in str(r.path) for r in m.router.routes)
        and any("/api/commentary/bgm/fetch" in str(r.path) for r in m.router.routes))
+    ok("路由清单含专用试听端点",
+       any("/api/commentary/bgm/preview" in str(r.path) for r in m.router.routes))
+
+    with Sandbox() as s:
+        t = track(sha=sha)
+        m._save_cached_library({"version": 1, "base_url": m.BGM_BASE_URL,
+                                "updated_at": "", "tracks": [t]})
+        expect_http("试听非法 id", 400, m.bgm_preview, "../../etc")
+        expect_http("试听未知 id", 404, m.bgm_preview, "b" * 16)
+        expect_http("未下载不能本地试听", 404, m.bgm_preview, t["id"])
+        (s.dir / t["file"]).write_bytes(blob)
+        resp = m.bgm_preview(t["id"])
+        ok("已下载返回本地文件", Path(resp.path) == s.dir / t["file"])
+        ok("试听 media_type 正确", resp.media_type == "audio/mpeg")
+        (s.dir / t["file"]).write_bytes(blob + b"x")
+        expect_http("本地文件被改动则拒绝试听", 404, m.bgm_preview, t["id"])
 
     html = (REPO / "web/index.html").read_text(encoding="utf-8")
     for eid in ("comTlMusicCloudToggle", "comTlMusicCloud", "comTlMusicCloudRefresh",
@@ -221,7 +237,10 @@ def main():
                 "/api/commentary/bgm/fetch", "comMusic.cloudName = t.name"):
         ok("app.js 含 " + sym, sym in js)
     ok("下载后复用 bgm=user", "comMusic.kind = 'user';" in js and "comMusic.file = p;" in js)
-    ok("试听本地曲走 audio-preview", "/api/commentary/audio-preview?path=" in js)
+    ok("试听本地曲走专用端点", "/api/commentary/bgm/preview?id=" in js)
+    cloud_aud = js[js.index("const comMusicCloudAudition"):js.index("const comMusicCloudUse")]
+    ok("曲库试听不依赖被抢占的 audio-preview", "/api/commentary/audio-preview" not in cloud_aud)
+    ok("曲库试听按 id 取本地流", "/api/commentary/bgm/preview?id=" in cloud_aud)
 
     css = (REPO / "web/styles.css").read_text(encoding="utf-8")
     for cls in (".com-tl-music-cloudbar", ".com-tl-music-cloudrow", ".com-tl-music-cloud[hidden]"):

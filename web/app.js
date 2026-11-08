@@ -16717,8 +16717,8 @@ el.dwVidPlayer.hidden = true;
   const comMusicCloudAudition = async (t) => {
     comMusicStopAudition();
     const url = (t.local && t.path)
-      ? '/api/commentary/audio-preview?path=' + encodeURIComponent(t.path)
-      : t.url;
+      ? '/api/commentary/bgm/preview?id=' + encodeURIComponent(t.id)
+      : t.url;   // 未下载时用云端直链（audio 标签可跨域播放）
     try {
       const a = new Audio(url);
       a.volume = Math.max(0, Math.min(1, comMusic.volume));
