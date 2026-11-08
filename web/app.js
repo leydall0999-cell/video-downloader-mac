@@ -16528,6 +16528,11 @@ el.dwVidPlayer.hidden = true;
   var comMusicAuditionEl = null;
   var comMusicOutCache = null;              // { ts, item } 最近一次成片列表查询结果
   const COM_MUSIC_LABEL = { off: '无', soft: '柔和', light: '轻快', epic: '恢弘', user: '本地文件' };
+  // 内置曲试听音频随前端一起发布（web/bgm/*.mp3），由渲染管线同一份 aevalsrc 配方生成。
+  // 这样不必先渲一次成片就能听；成片里真正混入的仍是管线现合成的音垫，两者声音一致。
+  const COM_MUSIC_BGM_URL = {
+    soft: '/bgm/soft.mp3', light: '/bgm/light.mp3', epic: '/bgm/epic.mp3'
+  };
   const comMusicEls = () => ({
     add: $('comTlMusicAdd'), clip: $('comTlMusicClip'), txt: $('comTlMusicTxt'),
     pop: $('comTlMusicPop'), opts: $('comTlMusicOpts'), fileRow: $('comTlMusicFileRow'),
@@ -16608,32 +16613,35 @@ el.dwVidPlayer.hidden = true;
     m.pop.hidden = !open;
     if (open) comMusicOpening();
   };
-  const comMusicAudition = async () => {
-    const m = comMusicEls();
+  /** 停掉正在播放的试听：换风格 / 关面板 / 重新点「试听」时调用，避免串音。 */
+  const comMusicStopAudition = () => {
     if (comMusicAuditionEl) {
       try { comMusicAuditionEl.pause(); } catch (_) { /* 已释放 */ }
       comMusicAuditionEl = null;
     }
+  };
+  const comMusicAudition = async () => {
+    comMusicStopAudition();
     if (comMusic.kind === 'off') { comMusicHint('先选一首配乐再试听'); return; }
     let url = '';
     if (comMusic.kind === 'user') {
       if (!comMusic.file) { comMusicHint('先点「选择音乐文件」挑一首', 'err'); return; }
       url = '/api/commentary/audio-preview?path=' + encodeURIComponent(comMusic.file);
     } else {
-      const item = await comMusicOut();
-      if (!item || (item.bgm_previews || []).indexOf(comMusic.kind) < 0) {
-        comMusicHint('内置曲的试听文件是渲染成片时一并生成的：先渲一次成片就能试听，或改用「本地文件…」。', 'err');
-        return;
-      }
-      url = '/api/commentary/bgm-preview/' + encodeURIComponent(item.id) + '/' + comMusic.kind;
+      // 内置曲试听直接读随前端发布的音频，不再要求「先渲一次成片」。
+      url = COM_MUSIC_BGM_URL[comMusic.kind];
+      if (!url) { comMusicHint('这个配乐没有试听音频', 'err'); return; }
     }
     try {
       const a = new Audio(url);
       a.volume = Math.max(0, Math.min(1, comMusic.volume));
+      a.addEventListener('ended', comMusicStopAudition);
       comMusicAuditionEl = a;
       await a.play();
+      if (comMusicAuditionEl !== a) return;   // 播放期间已被停掉
       comMusicHint('试听中…（音量按上面的滑块，实际成片里也是这个音量）', 'ok');
     } catch (e) {
+      comMusicStopAudition();
       comMusicHint('试听失败：' + ((e && e.message) || e), 'err');
     }
   };
@@ -16676,15 +16684,20 @@ el.dwVidPlayer.hidden = true;
   };
   (() => {
     const m = comMusicEls();
-    const toggle = () => comMusicOpen(!!(m.pop && m.pop.hidden));
+    const toggle = () => {
+      const opening = !!(m.pop && m.pop.hidden);
+      if (!opening) comMusicStopAudition();
+      comMusicOpen(opening);
+    };
     if (m.add) m.add.addEventListener('click', toggle);
     if (m.clip) m.clip.addEventListener('click', toggle);
     const closeBtn = $('comTlMusicClose');
-    if (closeBtn) closeBtn.addEventListener('click', () => comMusicOpen(false));
+    if (closeBtn) closeBtn.addEventListener('click', () => { comMusicStopAudition(); comMusicOpen(false); });
     if (m.opts) {
       m.opts.addEventListener('click', (ev) => {
         const b = ev.target && ev.target.closest ? ev.target.closest('.com-tl-music-opt') : null;
         if (!b) return;
+        comMusicStopAudition();
         comMusic.kind = b.dataset.kind || 'off';
         const cur = comMusicEls();
         comMusicSync();
@@ -16704,6 +16717,7 @@ el.dwVidPlayer.hidden = true;
             p = (Array.isArray(arr) && arr.length) ? arr[0] : '';
           }
           if (p) {
+            comMusicStopAudition();
             comMusic.file = p;
             comMusicSync();
             comMusicHint('已选：' + comMusicFileBase() + '，可先试听');
@@ -16729,6 +16743,9 @@ el.dwVidPlayer.hidden = true;
       m.vol.addEventListener('input', () => {
         comMusic.volume = Math.max(0.02, Math.min(0.6, Number(m.vol.value) || 0.18));
         comMusicSync();
+        if (comMusicAuditionEl) {
+          comMusicAuditionEl.volume = Math.max(0, Math.min(1, comMusic.volume));
+        }
       });
     }
     if (m.audition) m.audition.addEventListener('click', comMusicAudition);
