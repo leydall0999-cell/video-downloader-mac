@@ -92,6 +92,7 @@ def _normalize_tracks(lib: dict) -> list[dict]:
             "duration": t.get("duration"),
             "sha256": str(t.get("sha256") or ""),
             "license": str(t.get("license") or "")[:200],
+            "uploaded_at": str(t.get("uploaded_at") or ""),
         })
     return out
 

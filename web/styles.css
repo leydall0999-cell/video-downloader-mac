@@ -7690,3 +7690,29 @@ html.theme-dark .uc-bulk { background: var(--bg-card, #23252c); border-color: va
 .com-tl-music-cloudmeta { flex: none; color: #6B7280; font-size: .6rem; white-space: nowrap; }
 .com-tl-music-cloudrow .btn { flex: none; padding: .15rem .42rem; font-size: .62rem; }
 .com-tl-music-cloudhint { color: #6B7280; font-size: .62rem; padding: .3rem 0; line-height: 1.5; }
+
+
+/* 右栏「背景音乐」同级卡（2026-11-09）：曲库列表 + 成片同款时间排序 + 点整行即选中 */
+.com-music-cell { padding: .05rem .6rem .65rem; }
+.com-music-sortrow { display: flex; align-items: center; gap: .4rem; margin-bottom: .4rem; }
+.com-music-sortrow .com-sort-btn { flex: none; }
+.com-music-count { flex: 1 1 auto; font-size: .66rem; color: var(--text-mute); }
+.com-music-list { max-height: 224px; overflow: auto; }
+.com-music-row {
+  display: flex; align-items: center; gap: .45rem; padding: .4rem .5rem;
+  margin-bottom: .3rem; border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+}
+.com-music-row:hover { border-color: var(--accent); }
+.com-music-row.is-on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.com-music-name {
+  flex: 1 1 auto; min-width: 0; font-size: .72rem; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.com-music-meta { flex: none; font-size: .62rem; color: var(--text-mute); white-space: nowrap; }
+.com-music-empty { font-size: .68rem; color: var(--text-mute); padding: .35rem .1rem; line-height: 1.5; }
+.com-music-hint { margin-top: .35rem; font-size: .66rem; color: var(--text-mute); line-height: 1.45; }
+.com-music-hint.is-err { color: #FCA5A5; }
+.com-music-hint.is-ok { color: #6EE7B7; }

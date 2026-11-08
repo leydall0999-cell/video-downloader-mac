@@ -241,8 +241,23 @@ def main():
     cloud_aud = js[js.index("const comMusicCloudAudition"):js.index("const comMusicCloudUse")]
     ok("曲库试听不依赖通用 audio-preview", "/api/commentary/audio-preview" not in cloud_aud)
     ok("曲库试听按 id 取本地流", "/api/commentary/bgm/preview?id=" in cloud_aud)
-
     css = (REPO / "web/styles.css").read_text(encoding="utf-8")
+    changelog = (SERVER / "changelog.py").read_text(encoding="utf-8")
+    for sym in ("comMusicFold", "comMusicSortBtn", "comMusicList", "comMusicRefresh"):
+        ok("index.html 含右栏音乐卡 " + sym, f'id="{sym}"' in html)
+    for sym in ("comMusicCardRender", "comMusicCardPick", "comMusicSyncCurrentOutput",
+               "comMusicSortDesc", "comMusicCloudUse(t, null)",
+               "musicFold.addEventListener('toggle'"):
+        ok("app.js 含右栏卡接线 " + sym, sym in js)
+    ok("排序按上传时间且默认最新在前",
+       "comMusicSortDesc = true" in js and "uploaded_at" in js
+       and "bv.localeCompare(av)" in js)
+    ok("选中后自动同步到成片", "comMusicSyncCurrentOutput()" in js
+       and "/api/commentary/remux-bgm/" in js)
+    ok("后端清单透传 uploaded_at", "uploaded_at" in (SERVER / "routers/bgm_cloud.py").read_text(encoding="utf-8"))
+    for cls in (".com-music-row", ".com-music-row.is-on", ".com-music-sortrow"):
+        ok("styles.css 含 " + cls, cls in css)
+
     for cls in (".com-tl-music-cloudbar", ".com-tl-music-cloudrow", ".com-tl-music-cloud[hidden]"):
         ok("styles.css 含 " + cls, cls in css)
 
@@ -250,10 +265,9 @@ def main():
     ok("守卫已登记 runner", "run_one test_bgm_cloud.py" in runner)
 
     ver = (REPO / "VERSION").read_text(encoding="utf-8").strip()
-    changelog = (SERVER / "changelog.py").read_text(encoding="utf-8")
-    ok("VERSION 已升到 1.1.13", ver == "1.1.13", f"got={ver}")
-    ok("changelog 含本版条目", '"version": "1.1.13"' in changelog)
-    ok("changelog 说明留白", '"version": "1.1.13",\n        "date": "2026-11-08",\n        "items": [],' in changelog)
+    ok("VERSION 已升到 1.1.14", ver == "1.1.14", f"got={ver}")
+    ok("changelog 含本版条目且说明留白",
+       '"version": "1.1.14",\n        "date": "2026-11-09",\n        "items": [],' in changelog)
 
     print(f"\n=== test_bgm_cloud.py: {PASS} 通过 / {FAIL} 失败 ===")
     return 1 if FAIL else 0

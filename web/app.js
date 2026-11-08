@@ -16577,6 +16577,7 @@ el.dwVidPlayer.hidden = true;
     if (m.path) { m.path.textContent = comMusic.file || '未选择'; m.path.title = comMusic.file || ''; }
     if (m.vol) m.vol.value = String(comMusic.volume);
     if (m.volVal) m.volVal.textContent = pct;
+    comMusicCardHead();
   };
   /** 最近一支成片（试听内置曲 / 一键应用都要 cid）。15s 内复用，避免频繁打接口。 */
   const comMusicOut = async (fresh) => {
@@ -16732,10 +16733,11 @@ el.dwVidPlayer.hidden = true;
     }
   };
   const comMusicCloudUse = async (t, btn) => {
-    if (!btn) return;
-    const old = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = t.local ? '使用中…' : '下载中…';
+    const old = btn ? btn.textContent : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = t.local ? '使用中…' : '下载中…';
+    }
     comMusicHint('正在' + (t.local ? '读取' : '下载') + '：' + t.name + ' …');
     try {
       const r = await request('/api/commentary/bgm/fetch', {
@@ -16752,12 +16754,140 @@ el.dwVidPlayer.hidden = true;
       t.path = p;
       comMusicHint('✅ 已使用「' + t.name + '」：渲染成片时混入，断网也能用。', 'ok');
       comMusicCloudRender({ tracks: comMusicCloudTracks, offline: comMusicCloudOffline });
+      comMusicCardRender();
     } catch (e) {
       comMusicHint('下载失败：' + ((e && e.message) || e), 'err');
+      comMusicCardTip('下载失败：' + ((e && e.message) || e), 'err');
     } finally {
-      btn.disabled = false;
-      btn.textContent = old;
+      if (btn) { btn.disabled = false; btn.textContent = old; }
     }
+  };
+  // ===== 右栏「背景音乐」同级卡（2026-11-09 用户截图要求） =====
+  // 排序方式跟成片一样：时间维度，默认最新在前，⇅ 一键切换；
+  // 点整行就选中（自动下载并设为当前配乐）；切换背景音乐同理，自动同步到已渲染成片。
+  let comMusicSortDesc = true;
+  let comMusicSyncToken = 0;
+  const comMusicCardEls = () => ({
+    fold: $('comMusicFold'), hint: $('comMusicFoldHint'), list: $('comMusicList'),
+    sort: $('comMusicSortBtn'), count: $('comMusicCount'),
+    refresh: $('comMusicRefresh'), tip: $('comMusicHint')
+  });
+  const comMusicCardTip = (txt, cls) => {
+    const e = comMusicCardEls();
+    if (!e.tip) return;
+    e.tip.textContent = txt || '';
+    e.tip.className = 'com-music-hint' + (cls ? ' is-' + cls : '');
+  };
+  const comMusicCardHead = () => {
+    const e = comMusicCardEls();
+    if (!e.hint) return;
+    e.hint.textContent = comMusic.kind === 'off' ? '无'
+      : (comMusic.cloudName || comMusicFileBase() || comMusicLabel());
+  };
+  /** 选中后悄悄把配乐同步到最近成片（remux，不重渲）。没有成片就等生成时自然带上。 */
+  const comMusicSyncCurrentOutput = async () => {
+    const my = ++comMusicSyncToken;
+    const item = await comMusicOut(true);
+    if (!item || my !== comMusicSyncToken) return;
+    try {
+      const form = new FormData();
+      form.append('bgm', comMusic.kind);
+      if (comMusic.kind === 'user' && comMusic.file) form.append('bgm_file', comMusic.file);
+      form.append('bgm_volume', String(comMusic.volume));
+      const r = await request('/api/commentary/remux-bgm/' + encodeURIComponent(item.id),
+                              { method: 'POST', body: form });
+      const jid = r && r.job_id;
+      if (!jid) return;
+      for (let i = 0; i < 90; i++) {
+        await new Promise((res) => setTimeout(res, 1000));
+        if (my !== comMusicSyncToken) return;
+        const st = await request('/api/commentary/' + jid);
+        if (st && st.status === 'completed') {
+          comMusicOutCache = null;
+          comMusicCardTip('已同步到最近成片（秒级，不重渲）', 'ok');
+          return;
+        }
+        if (st && st.status === 'failed') {
+          comMusicCardTip('成片同步未完成，可点「应用到当前成片」重试', 'err');
+          return;
+        }
+      }
+    } catch (_) { /* 同步失败不影响选中结果 */ }
+  };
+  const comMusicCardRender = () => {
+    const e = comMusicCardEls();
+    if (!e.list) return;
+    const arr = comMusicCloudTracks.slice().sort((a, b) => {
+      const av = String(a.uploaded_at || ''), bv = String(b.uploaded_at || '');
+      if (av === bv) return String(a.name).localeCompare(String(b.name));
+      return comMusicSortDesc ? bv.localeCompare(av) : av.localeCompare(bv);
+    });
+    e.list.textContent = '';
+    if (e.count) e.count.textContent = arr.length
+      ? ('共 ' + arr.length + ' 首 · ' + (comMusicCloudOffline ? '离线缓存' : '云端曲库'))
+      : '曲库为空';
+    if (e.sort) {
+      const lbl = comMusicSortDesc ? '时间 · 最新在前' : '时间 · 最早在前';
+      e.sort.title = '排序：' + lbl + '（点击切换）';
+      e.sort.setAttribute('aria-label', '排序：' + lbl);
+      e.sort.classList.toggle('is-asc', !comMusicSortDesc);
+    }
+    comMusicCardHead();
+    if (!arr.length) {
+      const p = document.createElement('div');
+      p.className = 'com-music-empty';
+      p.textContent = comMusicCloudOffline
+        ? '还没缓存过曲库，联网后点「刷新曲库」即可。'
+        : '后台还没上传曲子。管理员到「系统后台 → 背景音乐」上传，再点「刷新曲库」。';
+      e.list.appendChild(p);
+      return;
+    }
+    arr.forEach((t) => {
+      const row = document.createElement('div');
+      const on = !!(comMusic.file && t.path && String(comMusic.file) === String(t.path));
+      row.className = 'com-music-row' + (on ? ' is-on' : '');
+      row.title = t.name + (t.license ? ' · 授权：' + t.license : '');
+      const name = document.createElement('span');
+      name.className = 'com-music-name';
+      name.textContent = (on ? '✓ ' : '') + t.name + (t.category ? ' · ' + t.category : '');
+      const meta = document.createElement('span');
+      meta.className = 'com-music-meta';
+      meta.textContent = (t.duration ? Math.round(t.duration) + 's' : '')
+        + (t.local ? ' 已下载' : (t.size ? ' ' + Math.round(t.size / 1024) + 'KB' : ''));
+      row.appendChild(name);
+      row.appendChild(meta);
+      row.addEventListener('click', () => comMusicCardPick(t));
+      e.list.appendChild(row);
+    });
+  };
+  const comMusicCardLoad = async (force) => {
+    const e = comMusicCardEls();
+    if (!e.list || comMusicCloudBusy) return;
+    if (comMusicCloudLoaded && !force) { comMusicCardRender(); return; }
+    comMusicCloudBusy = true;
+    comMusicCardTip('正在读取云端曲库…');
+    try {
+      const d = await request('/api/commentary/bgm/library');
+      comMusicCloudOffline = !!(d && d.offline);
+      comMusicCloudTracks = (d && d.tracks) || [];
+      comMusicCloudLoaded = true;
+      comMusicCardTip(comMusicCloudOffline ? '当前离线，显示已缓存的曲库' : '');
+      comMusicCardRender();
+      comMusicCloudRender({ tracks: comMusicCloudTracks, offline: comMusicCloudOffline });
+    } catch (err) {
+      comMusicCardTip('读取曲库失败：' + ((err && err.message) || err), 'err');
+    } finally {
+      comMusicCloudBusy = false;
+    }
+  };
+  /** 点整行就选中：复用曲库下载逻辑，然后自动同步到成片（切换同理）。 */
+  const comMusicCardPick = async (t) => {
+    comMusicCardTip('正在选中「' + t.name + '」…');
+    await comMusicCloudUse(t, null);
+    comMusicCardRender();
+    comMusicCardHead();
+    comMusicCardTip('已选中「' + t.name + '」', 'ok');
+    comMusicSyncCurrentOutput();
   };
   /** 把当前配乐应用到已有成片：轻量 amix，秒级，就地替换成片（不重渲）。 */
   const comMusicApply = async () => {
@@ -16878,6 +17008,20 @@ el.dwVidPlayer.hidden = true;
     }
     const cloudRefresh = $('comTlMusicCloudRefresh');
     if (cloudRefresh) cloudRefresh.addEventListener('click', () => comMusicCloudLoad(true));
+    const musicFold = $('comMusicFold');
+    if (musicFold) {
+      musicFold.addEventListener('toggle', () => {
+        if (musicFold.open) comMusicCardLoad(false);
+        else comMusicStopAudition();
+      });
+    }
+    const musicSort = $('comMusicSortBtn');
+    if (musicSort) musicSort.addEventListener('click', () => {
+      comMusicSortDesc = !comMusicSortDesc;
+      comMusicCardRender();
+    });
+    const musicRefresh = $('comMusicRefresh');
+    if (musicRefresh) musicRefresh.addEventListener('click', () => comMusicCardLoad(true));
     if (m.audition) m.audition.addEventListener('click', comMusicAudition);
     if (m.apply) m.apply.addEventListener('click', comMusicApply);
     comMusicSync();
