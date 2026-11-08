@@ -244,17 +244,24 @@ def main():
     css = (REPO / "web/styles.css").read_text(encoding="utf-8")
     changelog = (SERVER / "changelog.py").read_text(encoding="utf-8")
     for sym in ("comMusicFold", "comMusicSortBtn", "comMusicList", "comMusicRefresh"):
-        ok("index.html 含右栏音乐卡 " + sym, f'id="{sym}"' in html)
+        ok("index.html 含左栏音乐卡 " + sym, f'id="{sym}"' in html)
     for sym in ("comMusicCardRender", "comMusicCardPick", "comMusicSyncCurrentOutput",
                "comMusicSortDesc", "comMusicCloudUse(t, null)",
                "musicFold.addEventListener('toggle'"):
-        ok("app.js 含右栏卡接线 " + sym, sym in js)
+        ok("app.js 含左栏卡接线 " + sym, sym in js)
     ok("排序按上传时间且默认最新在前",
        "comMusicSortDesc = true" in js and "uploaded_at" in js
        and "bv.localeCompare(av)" in js)
     ok("选中后自动同步到成片", "comMusicSyncCurrentOutput()" in js
        and "/api/commentary/remux-bgm/" in js)
     ok("后端清单透传 uploaded_at", "uploaded_at" in (SERVER / "routers/bgm_cloud.py").read_text(encoding="utf-8"))
+    h_left = html.index('<div class="com-left"'); h_left_end = html.index("</div><!-- /com-left -->")
+    h_right = html.index('<div class="com-right"')
+    h_music = html.index('id="comMusicFold"')
+    ok("背景音乐卡确实落在左栏、不在右栏", h_left < h_music < h_left_end < h_right,
+       f"left={h_left} music={h_music} leftEnd={h_left_end} right={h_right}")
+    ok("左栏窄栏样式已接", ".com-left .com-music-fold" in css
+       and ".com-left .com-music-row" in css)
     for cls in (".com-music-row", ".com-music-row.is-on", ".com-music-sortrow"):
         ok("styles.css 含 " + cls, cls in css)
 

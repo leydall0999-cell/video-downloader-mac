@@ -7716,3 +7716,19 @@ html.theme-dark .uc-bulk { background: var(--bg-card, #23252c); border-color: va
 .com-music-hint { margin-top: .35rem; font-size: .66rem; color: var(--text-mute); line-height: 1.45; }
 .com-music-hint.is-err { color: #FCA5A5; }
 .com-music-hint.is-ok { color: #6EE7B7; }
+
+
+/* 背景音乐卡在左栏（2026-11-09 用户「放在左边」）：左栏仅 196-240px，按窄栏收紧 */
+.com-left .com-music-fold { margin-bottom: .4rem; }
+.com-left .com-music-fold > .com-fold-head { padding: .4rem .45rem; gap: .3rem; }
+.com-left .com-music-fold .com-fold-title { font-size: .76rem; }
+.com-left .com-music-fold .com-fold-hint { font-size: .62rem; }
+.com-left .com-music-cell { padding: 0 .45rem .5rem; }
+.com-left .com-music-sortrow { gap: .25rem; margin-bottom: .3rem; }
+.com-left .com-music-sortrow .btn { padding: .1rem .35rem; font-size: .62rem; }
+.com-left .com-music-count { font-size: .6rem; }
+.com-left .com-music-list { max-height: 260px; }
+.com-left .com-music-row { padding: .32rem .35rem; gap: .25rem; margin-bottom: .25rem; }
+.com-left .com-music-name { font-size: .66rem; }
+.com-left .com-music-meta { font-size: .58rem; }
+.com-left .com-music-hint { font-size: .6rem; }

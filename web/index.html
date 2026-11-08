@@ -2721,6 +2721,23 @@
     </div>
       <button type="button" class="com-hist-toggle" id="comHistToggle" title="打开解说历史抽屉">📂 解说历史</button>
       </div><!-- /com-subbar -->
+      <!-- 背景音乐：与「素材来源 / 预览与正剧范围」同级，放左栏（用户 2026-11-09「放在左边」） -->
+      <details class="com-fold-card com-music-fold" id="comMusicFold">
+        <summary class="com-fold-head">
+          <span class="com-fold-title">🎵 背景音乐</span>
+          <span class="com-fold-hint" id="comMusicFoldHint">无</span>
+        </summary>
+        <div class="com-music-cell">
+          <div class="com-music-sortrow">
+            <button type="button" class="com-sort-btn" id="comMusicSortBtn"
+                    title="排序：时间 · 最新在前（点击切换）" aria-label="排序：时间 · 最新在前">⇅</button>
+            <span class="com-music-count" id="comMusicCount"></span>
+            <button type="button" class="btn btn-sm btn-secondary" id="comMusicRefresh">刷新</button>
+          </div>
+          <div class="com-music-list" id="comMusicList"></div>
+          <div class="com-music-hint" id="comMusicHint"></div>
+        </div>
+      </details>
                 <div class="com-trim-card" id="comTrimCard" hidden data-page-node-id="nDMvyIlDN1rvgp4iVG14i4">
       <!-- 2026-09-20（用户：「这个标题能再节约一点空间吗，现在是半中间，不上不下的，logo 也不要了」）：
            ① 去掉行首 ✂️（logo 不要了）；
@@ -3390,23 +3407,6 @@
         </div>
       </details>
 
-      <!-- 组 6：背景音乐（与上方各卡同款折叠卡；用户 2026-11-09「把音乐选择放这里同级」） -->
-      <details class="com-fold-card" id="comMusicFold">
-        <summary class="com-fold-head">
-          <span class="com-fold-title">🎵 背景音乐</span>
-          <span class="com-fold-hint" id="comMusicFoldHint">无</span>
-        </summary>
-        <div class="com-cell com-cell-full com-music-cell">
-          <div class="com-music-sortrow">
-            <button type="button" class="com-sort-btn" id="comMusicSortBtn"
-                    title="排序：时间 · 最新在前（点击切换）" aria-label="排序：时间 · 最新在前">⇅</button>
-            <span class="com-music-count" id="comMusicCount"></span>
-            <button type="button" class="btn btn-sm btn-secondary" id="comMusicRefresh">刷新曲库</button>
-          </div>
-          <div class="com-music-list" id="comMusicList"></div>
-          <div class="com-music-hint" id="comMusicHint"></div>
-        </div>
-      </details>
     </div>
           </div><!-- /com-right -->
     </div><!-- /com-v2 -->
