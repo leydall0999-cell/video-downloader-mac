@@ -264,6 +264,15 @@ def main():
        and ".com-left .com-music-row" in css)
     for cls in (".com-music-row", ".com-music-row.is-on", ".com-music-sortrow"):
         ok("styles.css 含 " + cls, cls in css)
+    # 排序按钮必须与「成片」历史列表同款（用户 2026-11-09「排序方式跟成片一样」）：
+    # 同 SVG 图标（不是文字 ⇅）、同紧凑内距、同 is-asc 品牌色高亮。
+    music_html = html[h_music:html.index("</details>", h_music)]
+    ok("音乐卡排序按钮用成片同款 SVG 图标", 'class="com-sort-ico"' in music_html)
+    ok("音乐卡排序按钮不再用文字箭头", ">⇅<" not in music_html)
+    ok("音乐卡排序按钮尺寸与成片一致",
+       ".com-music-sortrow .com-sort-btn { flex: none; min-width: 0; padding: .3rem .34rem;" in css)
+    ok("音乐卡排序按钮有 is-asc 高亮",
+       ".com-music-sortrow .com-sort-btn.is-asc {" in css)
 
     for cls in (".com-tl-music-cloudbar", ".com-tl-music-cloudrow", ".com-tl-music-cloud[hidden]"):
         ok("styles.css 含 " + cls, cls in css)
@@ -272,9 +281,9 @@ def main():
     ok("守卫已登记 runner", "run_one test_bgm_cloud.py" in runner)
 
     ver = (REPO / "VERSION").read_text(encoding="utf-8").strip()
-    ok("VERSION 已升到 1.1.14", ver == "1.1.14", f"got={ver}")
+    ok("VERSION 已升到 1.1.15", ver == "1.1.15", f"got={ver}")
     ok("changelog 含本版条目且说明留白",
-       '"version": "1.1.14",\n        "date": "2026-11-09",\n        "items": [],' in changelog)
+       '"version": "1.1.15",\n        "date": "2026-11-09",\n        "items": [],' in changelog)
 
     print(f"\n=== test_bgm_cloud.py: {PASS} 通过 / {FAIL} 失败 ===")
     return 1 if FAIL else 0

@@ -7692,10 +7692,17 @@ html.theme-dark .uc-bulk { background: var(--bg-card, #23252c); border-color: va
 .com-tl-music-cloudhint { color: #6B7280; font-size: .62rem; padding: .3rem 0; line-height: 1.5; }
 
 
-/* 右栏「背景音乐」同级卡（2026-11-09）：曲库列表 + 成片同款时间排序 + 点整行即选中 */
+/* 左栏「背景音乐」同级卡（2026-11-09 用户「放在左边」）：曲库列表 + 成片同款时间排序 + 点整行即选中 */
 .com-music-cell { padding: .05rem .6rem .65rem; }
 .com-music-sortrow { display: flex; align-items: center; gap: .4rem; margin-bottom: .4rem; }
-.com-music-sortrow .com-sort-btn { flex: none; }
+/* 排序按钮与「成片」历史列表完全同款：同 SVG 图标、同紧凑尺寸、同 is-asc 品牌色高亮 */
+.com-music-sortrow .com-sort-btn { flex: none; min-width: 0; padding: .3rem .34rem; font-size: .74rem; gap: .28rem; }
+.com-music-sortrow .com-sort-ico { width: 15px; height: 15px; display: block; flex: none; }
+.com-music-sortrow .com-sort-btn.is-asc {
+  color: var(--brand);
+  border-color: color-mix(in srgb, var(--brand) 55%, var(--line));
+  background-color: color-mix(in srgb, var(--brand) 13%, transparent);
+}
 .com-music-count { flex: 1 1 auto; font-size: .66rem; color: var(--text-mute); }
 .com-music-list { max-height: 224px; overflow: auto; }
 .com-music-row {
