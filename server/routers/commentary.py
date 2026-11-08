@@ -957,6 +957,37 @@ def commentary_save_to_downloads(cid: str) -> dict:
         raise app.HTTPException(status_code=500, detail=f"复制失败：{e}")
     return {"saved": True, "path": str(dst), "name": dst.name}
 
+@router.get("/api/commentary/audio-preview")
+def commentary_audio_preview(path: str):
+    """提供本地音乐试听流（用户在桌面桥选完文件后，前端调本端点拉 mp3 进 <audio>）。
+
+    安全：路径必须
+    - 以 / 开头（绝对路径）
+    - 位于当前用户家目录下（避免误读到系统目录）
+    - 文件存在且扩展名在允许的音频列表（mp3/m4a/wav/aac/flac/ogg）
+    """
+    import pathlib as _pl
+    if not path or not path.startswith("/"):
+        raise app.HTTPException(status_code=400, detail="path 必须为绝对路径")
+    home = _pl.Path.home()
+    try:
+        ap = _pl.Path(path).resolve()
+        ap.relative_to(home)  # 必须在家目录下
+    except ValueError:
+        raise app.HTTPException(status_code=400, detail="path 必须在用户家目录下")
+    except OSError:
+        raise app.HTTPException(status_code=400, detail="path 无法解析")
+    if not ap.is_file():
+        raise app.HTTPException(status_code=404, detail="文件不存在")
+    if ap.suffix.lower() not in (".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg"):
+        raise app.HTTPException(status_code=400, detail=f"不支持的音频扩展名 {ap.suffix}")
+    media = {
+        ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav",
+        ".aac": "audio/aac", ".flac": "audio/flac", ".ogg": "audio/ogg",
+    }[ap.suffix.lower()]
+    return app.FileResponse(path=str(ap), filename=ap.name, media_type=media)
+
+
 @router.get("/api/commentary/{job_id}")
 def commentary_status(job_id: str) -> dict:
     with app._commentary_lock:
@@ -1390,37 +1421,6 @@ def commentary_bgm_preview(cid: str, kind: str):
         raise app.HTTPException(status_code=404,
                                 detail=f"该成片缺少 {kind} 风格试听（可能是旧版渲染，请重新渲染）")
     return app.FileResponse(path=str(mp3), filename=f"{kind}.mp3", media_type="audio/mpeg")
-
-
-@router.get("/api/commentary/audio-preview")
-def commentary_audio_preview(path: str):
-    """提供本地音乐试听流（用户在桌面桥选完文件后，前端调本端点拉 mp3 进 <audio>）。
-
-    安全：路径必须
-    - 以 / 开头（绝对路径）
-    - 位于当前用户家目录下（避免误读到系统目录）
-    - 文件存在且扩展名在允许的音频列表（mp3/m4a/wav/aac/flac/ogg）
-    """
-    import pathlib as _pl
-    if not path or not path.startswith("/"):
-        raise app.HTTPException(status_code=400, detail="path 必须为绝对路径")
-    home = _pl.Path.home()
-    try:
-        ap = _pl.Path(path).resolve()
-        ap.relative_to(home)  # 必须在家目录下
-    except ValueError:
-        raise app.HTTPException(status_code=400, detail="path 必须在用户家目录下")
-    except OSError:
-        raise app.HTTPException(status_code=400, detail="path 无法解析")
-    if not ap.is_file():
-        raise app.HTTPException(status_code=404, detail="文件不存在")
-    if ap.suffix.lower() not in (".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg"):
-        raise app.HTTPException(status_code=400, detail=f"不支持的音频扩展名 {ap.suffix}")
-    media = {
-        ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav",
-        ".aac": "audio/aac", ".flac": "audio/flac", ".ogg": "audio/ogg",
-    }[ap.suffix.lower()]
-    return app.FileResponse(path=str(ap), filename=ap.name, media_type=media)
 
 
 @router.post("/api/commentary/voice-preview")

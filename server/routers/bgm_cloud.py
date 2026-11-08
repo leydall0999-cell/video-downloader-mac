@@ -198,7 +198,7 @@ def bgm_preview(id: str = "") -> Any:
     """已下载曲目的本地试听流。
 
     按曲目 id 取路径，不接受任何客户端路径参数 —— 既避开被
-    /api/commentary/{job_id} 抢占的通用 audio-preview，也杜绝任意文件读取。
+    与 /api/commentary/{job_id} 同名冲突的通用 audio-preview，也杜绝任意文件读取。
     断网时已下载曲目照样能试听。
     """
     if not BGM_ID_RE.match(id or ""):

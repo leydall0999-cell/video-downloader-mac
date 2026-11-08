@@ -239,7 +239,7 @@ def main():
     ok("下载后复用 bgm=user", "comMusic.kind = 'user';" in js and "comMusic.file = p;" in js)
     ok("试听本地曲走专用端点", "/api/commentary/bgm/preview?id=" in js)
     cloud_aud = js[js.index("const comMusicCloudAudition"):js.index("const comMusicCloudUse")]
-    ok("曲库试听不依赖被抢占的 audio-preview", "/api/commentary/audio-preview" not in cloud_aud)
+    ok("曲库试听不依赖通用 audio-preview", "/api/commentary/audio-preview" not in cloud_aud)
     ok("曲库试听按 id 取本地流", "/api/commentary/bgm/preview?id=" in cloud_aud)
 
     css = (REPO / "web/styles.css").read_text(encoding="utf-8")
