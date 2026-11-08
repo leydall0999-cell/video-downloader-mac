@@ -7675,3 +7675,18 @@ html.theme-dark .uc-bulk { background: var(--bg-card, #23252c); border-color: va
 .cd-hint { margin: 0 0 .6rem; font-size: .8rem; line-height: 1.6; color: var(--text-mute); }
 .cd-cred-actions { display: flex; align-items: center; gap: .6rem; margin-top: .5rem; }
 .cd-cred-state { font-size: .78rem; color: var(--text-mute); }
+
+
+/* 在线配乐曲库（2026-11-08）：云端清单 + 按需下载到本机 */
+.com-tl-music-cloudbar { display: flex; align-items: center; gap: .4rem; margin-bottom: .45rem; }
+.com-tl-music-cloudbar .btn { flex: none; }
+.com-tl-music-cloudinfo { color: #6B7280; font-size: .62rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.com-tl-music-cloud { border: 1px solid rgba(255,255,255,.09); border-radius: 8px; padding: .45rem; margin-bottom: .45rem; max-height: 190px; overflow: auto; }
+.com-tl-music-cloud[hidden] { display: none; }
+.com-tl-music-cloudhead { display: flex; align-items: center; justify-content: space-between; gap: .4rem; margin-bottom: .35rem; color: #9CA3AF; font-size: .62rem; }
+.com-tl-music-cloudhead .btn { flex: none; padding: .12rem .4rem; font-size: .62rem; }
+.com-tl-music-cloudrow { display: flex; align-items: center; gap: .35rem; padding: .3rem 0; border-top: 1px solid rgba(255,255,255,.05); }
+.com-tl-music-cloudname { flex: 1 1 auto; min-width: 0; color: #E5E7EB; font-size: .68rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.com-tl-music-cloudmeta { flex: none; color: #6B7280; font-size: .6rem; white-space: nowrap; }
+.com-tl-music-cloudrow .btn { flex: none; padding: .15rem .42rem; font-size: .62rem; }
+.com-tl-music-cloudhint { color: #6B7280; font-size: .62rem; padding: .3rem 0; line-height: 1.5; }

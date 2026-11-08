@@ -2903,6 +2903,17 @@
               <button type="button" class="com-tl-music-opt" data-kind="epic">恢弘</button>
               <button type="button" class="com-tl-music-opt" data-kind="user">本地文件…</button>
             </div>
+            <div class="com-tl-music-cloudbar">
+              <button type="button" class="btn btn-sm btn-secondary" id="comTlMusicCloudToggle">☁ 在线曲库</button>
+              <span class="com-tl-music-cloudinfo" id="comTlMusicCloudInfo"></span>
+            </div>
+            <div class="com-tl-music-cloud" id="comTlMusicCloud" hidden>
+              <div class="com-tl-music-cloudhead">
+                <span>点「下载并使用」存到本机，断网也能用</span>
+                <button type="button" class="btn btn-sm btn-secondary" id="comTlMusicCloudRefresh">刷新</button>
+              </div>
+              <div class="com-tl-music-cloudlist" id="comTlMusicCloudList"></div>
+            </div>
             <div class="com-tl-music-filerow" id="comTlMusicFileRow" hidden>
               <button type="button" class="btn btn-sm btn-secondary" id="comTlMusicPick">选择音乐文件</button>
               <span class="com-tl-music-path" id="comTlMusicPath">未选择</span>

@@ -224,6 +224,13 @@ function handleCompleted(details) {
     return;
   }
   var tabId = (typeof details.tabId === 'number') ? details.tabId : -1;
+  // HLS 清单常由播放器用**跨域 fetch** 拉取（Sec-Fetch-Site: cross-site），Chrome 对这类
+  // 请求可能给不出 tabId（-1）。照原样塞进「无标签页」分库，弹窗按当前标签页取列表
+  // 就永远是空 —— 表现为「视频在播，扩展却提示没嗅探到」，而桌面端其实已收到条目
+  // （2026-11-08 nmwchxx.com 实测：page_url 退化成 initiator、page_title 为空即此分支）。
+  // 参考猫抓「抓到的资源一律不丢」：归属不明时归到当前激活标签页，既修好显示，
+  // 又保留用户要的「只保存当前页」分库语义。
+  if (tabId <= 0 && activeTabId > 0) tabId = activeTabId;
 
   // 主文档请求 = 这个标签页换页了 → 丢掉上一页嗅到的条目（「只保存当前页」的闸门）。
   // 用 pageKeyOf 忽略 hash：页内锚点跳转不算换页。
@@ -769,12 +776,28 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   switch (msg.type) {
     case 'getState':
       var tid = scopeTabId();
+      var hostOf = function (u) {
+        try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ''; }
+      };
+      var scoped = store.list(tid);
+      // 兼容存量：修复前「归属不明」的请求都进了 -1 分库，升级后不再产生，但当前页
+      // 已经抓到的流要能立刻看见（不必刷新重播）。只并入同站条目，避免串进别页内容。
+      if (!scoped.length && tid > 0) {
+        var curHost = hostOf(tabPage[String(tid)] || '');
+        if (curHost) {
+          var orphans = store.list(-1) || [];
+          for (var oi = 0; oi < orphans.length; oi++) {
+            var it = orphans[oi];
+            if (hostOf(it.referer || it.pageUrl || '') === curHost) scoped.push(it);
+          }
+        }
+      }
       var snap = {
         enabled: enabled,
         carryCookie: carryCookie,
         endpoint: endpoint,
         tabId: tid,
-        items: store.list(tid),
+        items: scoped,
         segments: store.segments(tid),
         sentUrls: sentUrls,
         // v1.0.40：把推送记账带给 popup —— 「没嗅到」时用户能自己看出是不是推送失败

@@ -1421,6 +1421,8 @@ run_one test_commentary_never_slowdown.py
 run_one test_douyin_engine_exit_cleanup.py
 run_one test_douyin_detail_fastpath.py
 run_one test_douyin_gallery.py
+# 在线配乐曲库：云端清单白名单 / sha256 校验 / SSRF 防护 / 离线缓存 / 前端接线
+run_one test_bgm_cloud.py
 
 echo ""
 echo "========================================="

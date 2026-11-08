@@ -16527,6 +16527,10 @@ el.dwVidPlayer.hidden = true;
   var comMusic = { kind: 'off', file: '', volume: 0.18 };
   var comMusicAuditionEl = null;
   var comMusicOutCache = null;              // { ts, item } 最近一次成片列表查询结果
+  var comMusicCloudTracks = [];             // 云端曲库清单（含 local/path 标记）
+  var comMusicCloudLoaded = false;
+  var comMusicCloudBusy = false;
+  var comMusicCloudOffline = false;
   const COM_MUSIC_LABEL = { off: '无', soft: '柔和', light: '轻快', epic: '恢弘', user: '本地文件' };
   // 内置曲试听音频随前端一起发布（web/bgm/*.mp3），由渲染管线同一份 aevalsrc 配方生成。
   // 这样不必先渲一次成片就能听；成片里真正混入的仍是管线现合成的音垫，两者声音一致。
@@ -16560,7 +16564,8 @@ el.dwVidPlayer.hidden = true;
     }
     if (m.txt && on) {
       m.txt.textContent = '🎵 ' + comMusicLabel()
-        + (comMusic.kind === 'user' && comMusic.file ? ' · ' + comMusicFileBase() : '')
+        + (comMusic.kind === 'user' && comMusic.file
+            ? ' · ' + (comMusic.cloudName || comMusicFileBase()) : '')
         + ' · ' + pct;
     }
     if (m.opts) {
@@ -16645,6 +16650,115 @@ el.dwVidPlayer.hidden = true;
       comMusicHint('试听失败：' + ((e && e.message) || e), 'err');
     }
   };
+  // ===== 在线配乐曲库（2026-11-08）：云端清单 → 试听 → 下载到本机 → 复用 bgm_file =====
+  const comMusicCloudRender = (data) => {
+    const box = $('comTlMusicCloudList');
+    const info = $('comTlMusicCloudInfo');
+    if (!box) return;
+    box.textContent = '';
+    comMusicCloudTracks = (data && data.tracks) || [];
+    comMusicCloudOffline = !!(data && data.offline);
+    if (info) info.textContent = comMusicCloudOffline
+      ? '离线：显示上次缓存的曲库'
+      : (comMusicCloudTracks.length ? ('共 ' + comMusicCloudTracks.length + ' 首') : '曲库还是空的');
+    if (!comMusicCloudTracks.length) {
+      const p = document.createElement('div');
+      p.className = 'com-tl-music-cloudhint';
+      p.textContent = comMusicCloudOffline
+        ? '还没缓存过曲库，联网后点「刷新」即可。'
+        : '后台还没上传曲子。管理员到「系统后台 → 背景音乐」上传后，点这里「刷新」即可。';
+      box.appendChild(p);
+      return;
+    }
+    comMusicCloudTracks.forEach((t) => {
+      const row = document.createElement('div');
+      row.className = 'com-tl-music-cloudrow';
+      const name = document.createElement('span');
+      name.className = 'com-tl-music-cloudname';
+      name.textContent = t.name + (t.category ? ' · ' + t.category : '');
+      name.title = t.name + (t.license ? ' · 授权：' + t.license : '');
+      const meta = document.createElement('span');
+      meta.className = 'com-tl-music-cloudmeta';
+      meta.textContent = (t.duration ? Math.round(t.duration) + 's ' : '')
+        + (t.local ? '已下载' : (t.size ? Math.round(t.size / 1024) + 'KB' : ''));
+      const play = document.createElement('button');
+      play.type = 'button';
+      play.className = 'btn btn-sm btn-secondary';
+      play.textContent = '▶ 试听';
+      play.addEventListener('click', () => comMusicCloudAudition(t));
+      const use = document.createElement('button');
+      use.type = 'button';
+      use.className = 'btn btn-sm btn-primary';
+      use.textContent = t.local ? '使用' : '下载并使用';
+      use.addEventListener('click', () => comMusicCloudUse(t, use));
+      row.appendChild(name);
+      row.appendChild(meta);
+      row.appendChild(play);
+      row.appendChild(use);
+      box.appendChild(row);
+    });
+  };
+  const comMusicCloudLoad = async (force) => {
+    const box = $('comTlMusicCloudList');
+    if (!box || comMusicCloudBusy) return;
+    if (comMusicCloudLoaded && !force) return;
+    comMusicCloudBusy = true;
+    box.textContent = '正在读取云端曲库…';
+    try {
+      const d = await request('/api/commentary/bgm/library');
+      comMusicCloudLoaded = true;
+      comMusicCloudRender(d);
+    } catch (e) {
+      box.textContent = '读取曲库失败：' + ((e && e.message) || e);
+    } finally {
+      comMusicCloudBusy = false;
+    }
+  };
+  const comMusicCloudAudition = async (t) => {
+    comMusicStopAudition();
+    const url = (t.local && t.path)
+      ? '/api/commentary/audio-preview?path=' + encodeURIComponent(t.path)
+      : t.url;
+    try {
+      const a = new Audio(url);
+      a.volume = Math.max(0, Math.min(1, comMusic.volume));
+      a.addEventListener('ended', comMusicStopAudition);
+      comMusicAuditionEl = a;
+      await a.play();
+      comMusicHint('试听中：' + t.name + (t.local ? '（已存到本机）' : '（云端在线试听）'), 'ok');
+    } catch (e) {
+      comMusicStopAudition();
+      comMusicHint('试听失败：' + ((e && e.message) || e), 'err');
+    }
+  };
+  const comMusicCloudUse = async (t, btn) => {
+    if (!btn) return;
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = t.local ? '使用中…' : '下载中…';
+    comMusicHint('正在' + (t.local ? '读取' : '下载') + '：' + t.name + ' …');
+    try {
+      const r = await request('/api/commentary/bgm/fetch', {
+        method: 'POST', body: JSON.stringify({ id: t.id })
+      });
+      const p = r && r.path;
+      if (!p) throw new Error((r && r.detail) || '没拿到本地路径');
+      comMusicStopAudition();
+      comMusic.kind = 'user';
+      comMusic.file = p;
+      comMusic.cloudName = t.name;
+      comMusicSync();
+      t.local = true;
+      t.path = p;
+      comMusicHint('✅ 已使用「' + t.name + '」：渲染成片时混入，断网也能用。', 'ok');
+      comMusicCloudRender({ tracks: comMusicCloudTracks, offline: comMusicCloudOffline });
+    } catch (e) {
+      comMusicHint('下载失败：' + ((e && e.message) || e), 'err');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old;
+    }
+  };
   /** 把当前配乐应用到已有成片：轻量 amix，秒级，就地替换成片（不重渲）。 */
   const comMusicApply = async () => {
     const m = comMusicEls();
@@ -16692,7 +16806,12 @@ el.dwVidPlayer.hidden = true;
     if (m.add) m.add.addEventListener('click', toggle);
     if (m.clip) m.clip.addEventListener('click', toggle);
     const closeBtn = $('comTlMusicClose');
-    if (closeBtn) closeBtn.addEventListener('click', () => { comMusicStopAudition(); comMusicOpen(false); });
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      comMusicStopAudition();
+      const cb = $('comTlMusicCloud');
+      if (cb) cb.hidden = true;
+      comMusicOpen(false);
+    });
     if (m.opts) {
       m.opts.addEventListener('click', (ev) => {
         const b = ev.target && ev.target.closest ? ev.target.closest('.com-tl-music-opt') : null;
@@ -16748,6 +16867,17 @@ el.dwVidPlayer.hidden = true;
         }
       });
     }
+    const cloudToggle = $('comTlMusicCloudToggle');
+    const cloudBox = $('comTlMusicCloud');
+    if (cloudToggle && cloudBox) {
+      cloudToggle.addEventListener('click', () => {
+        cloudBox.hidden = !cloudBox.hidden;
+        if (!cloudBox.hidden) comMusicCloudLoad(false);
+        else comMusicStopAudition();
+      });
+    }
+    const cloudRefresh = $('comTlMusicCloudRefresh');
+    if (cloudRefresh) cloudRefresh.addEventListener('click', () => comMusicCloudLoad(true));
     if (m.audition) m.audition.addEventListener('click', comMusicAudition);
     if (m.apply) m.apply.addEventListener('click', comMusicApply);
     comMusicSync();

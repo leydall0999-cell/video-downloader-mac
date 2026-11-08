@@ -614,6 +614,117 @@ def _purge_commentary_stash(now: float | None = None) -> int:
                 _commentary_stash.pop(k, None)
     return removed
 
+
+def _commentary_stage_dirs() -> list[Path]:
+    """bundled 解说管线的中间产物目录（input/work），绝不包含 output 成片目录。
+
+    COMMENTARY_WORK_ROOT 由桌面启动器注入（mac: ~/Library/Application Support/
+    VideoDownloader/commentary；win: %APPDATA%/commentary）。只认名为 commentary
+    的工作根下的 input/work，并拒绝把 HOME / 根目录 / 当前工作目录当作工作根，
+    避免环境变量被误设时误删无关文件。
+    """
+    raw = (os.environ.get("COMMENTARY_WORK_ROOT") or "").strip()
+    if not raw:
+        return []
+    try:
+        base = Path(raw).expanduser().resolve()
+    except OSError:
+        return []
+    if not base.is_dir() or base.name.lower() != "commentary":
+        return []
+    try:
+        if base in (Path.home().resolve(), Path.cwd().resolve(), Path(base.anchor)):
+            return []
+    except OSError:
+        return []
+    return [base / "input", base / "work"]
+
+
+# 第二套解说管线中间产物的保留天数（与 stash/work 同风格，可用环境变量覆盖）。
+# 默认 7 天，与第一套管线的 work 对齐：input/work 都是渲染中间产物，成片产出后
+# 即无保留价值；与 stash(14 天，源视频冷缓存) 区分。
+COMMENTARY_ARTIFACT_RETENTION_DAYS = max(
+    1, int(os.environ.get("VDL_COMMENTARY_ARTIFACT_RETENTION_DAYS", "7") or 7)
+)
+
+
+def _dir_has_recent_file(d: Path, cutoff: float) -> bool:
+    """目录内是否存在 mtime >= cutoff 的文件。用于保护仍在写入的 job 目录：
+    目录本身的 mtime 只在「增删子项」时更新，老目录里可能正有活跃任务写新文件，
+    不能只看目录 mtime 就整目录删。遍历不跟随符号链接；遇到读不到的项一律
+    保守返回 True（宁可不清，不可误删）。"""
+    try:
+        for root, _dirs, files in os.walk(d, followlinks=False):
+            for name in files:
+                try:
+                    if os.lstat(os.path.join(root, name)).st_mtime >= cutoff:
+                        return True
+                except OSError:
+                    return True
+    except OSError:
+        return True
+    return False
+
+
+def _purge_commentary_artifacts() -> int:
+    """按 mtime 清理 bundled 解说管线 input/work 里的过期中间产物。
+
+    安全约束：
+      1. 目录只来自 _commentary_stage_dirs()（input/work），output 成片目录永不进入；
+      2. 符号链接用 lstat 判龄、只删链接本身，绝不跟随到链接目标；
+      3. 跳过 commentary_jobs 里仍在进行、且引用到该路径的任务；
+      4. 只删 mtime 早于保留期（COMMENTARY_ARTIFACT_RETENTION_DAYS，默认 7 天）的条目。
+    返回删除条数。
+    """
+    dirs = _commentary_stage_dirs()
+    if not dirs:
+        return 0
+    cutoff = time.time() - COMMENTARY_ARTIFACT_RETENTION_DAYS * 86400
+    running: set[str] = set()
+    try:
+        with _commentary_lock:
+            for job in commentary_jobs.values():
+                if str(job.get("status") or "").lower() in ("running", "pending", "queued"):
+                    sp = str(job.get("src_path") or "")
+                    if sp:
+                        running.add(os.path.realpath(sp))
+    except Exception:
+        pass
+    removed = 0
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        for e in d.iterdir():
+            try:
+                st = e.lstat()  # 不跟随符号链接：断链也要能清掉，且绝不删到链接目标
+                if st.st_mtime >= cutoff:
+                    continue
+                if os.path.realpath(e) in running:
+                    continue
+                if e.is_symlink() or e.is_file():
+                    e.unlink(missing_ok=True)
+                elif e.is_dir():
+                    real = os.path.realpath(e)
+                    # 运行中任务正引用该目录（或目录内的文件）→ 跳过：
+                    # running 里存的是文件 realpath，目录需按前缀匹配，不能只比等值。
+                    if any(r == real or r.startswith(real + os.sep) for r in running):
+                        continue
+                    # 目录内有近期写入的文件 → 活跃 job 目录，整目录跳过，避免
+                    # 只看目录 mtime（增删子项才更新）误删正在使用的分段目录。
+                    if _dir_has_recent_file(e, cutoff):
+                        continue
+                    shutil.rmtree(e, ignore_errors=True)
+                else:
+                    continue
+                removed += 1
+            except OSError:
+                continue
+    if removed:
+        logger.info("已清理 %s 个过期解说中间产物（input/work，保留 %s 天）",
+                    removed, COMMENTARY_ARTIFACT_RETENTION_DAYS)
+    return removed
+
+
 # ---- AI 去水印（E2FGVI worker，桌面版可选）：local subprocess 或 http worker ----
 AI_DEWATERMARK_ENABLED = bool(
     plat.is_desktop()
@@ -2382,11 +2493,17 @@ async def _cleanup_loop() -> None:
             store.flush()   # 兜底：节流窗口内没再被触碰的脏任务状态也落盘（B2）
         except Exception:
             logger.exception("任务状态落盘失败")
-        # 解说 work 目录保留期清理（防 21GB 级无限累积）
-        try:
-            await asyncio.to_thread(_purge_commentary_work)
-        except Exception:
-            logger.exception("解说 work 清理失败")
+        # 解说缓存保留期清理（防无限累积）。三处各自独立、每一处都必须接线：
+        #   _purge_commentary_work      -> ~/.video-downloader/commentary_out/work（job 目录）
+        #   _purge_commentary_stash     -> ~/.video-downloader/commentary_out/stash（源视频冷缓存）
+        #   _purge_commentary_artifacts -> bundled 管线 input/work（output 成片永不触碰）
+        # 历史缺陷：_purge_commentary_stash 有定义却从未被调用，stash 只增不减（实测 3.4G）。
+        for _purge in (_purge_commentary_work, _purge_commentary_stash,
+                       _purge_commentary_artifacts):
+            try:
+                await asyncio.to_thread(_purge)
+            except Exception:
+                logger.exception("解说缓存清理失败：%s", getattr(_purge, "__name__", "?"))
 
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -2403,10 +2520,14 @@ async def lifespan(_: FastAPI):
                 logger.info("已清理 %s 个上次运行遗留的任务目录", orphans)
         except Exception:
             logger.exception("启动时孤儿任务清理失败")
-        try:
-            _purge_commentary_work()
-        except Exception:
-            logger.exception("启动时解说 work 清理失败")
+        # 与 _cleanup_loop 保持同一组清理函数，避免「函数写了却没接线」的历史缺陷重演
+        for _purge in (_purge_commentary_work, _purge_commentary_stash,
+                       _purge_commentary_artifacts):
+            try:
+                _purge()
+            except Exception:
+                logger.exception("启动时解说缓存清理失败：%s",
+                                 getattr(_purge, "__name__", "?"))
 
     threading.Thread(target=_deferred_startup_cleanup,
                      name="vdl-startup-cleanup", daemon=True).start()
@@ -4299,6 +4420,8 @@ from routers import userdata as _userdata_rtr
 app.include_router(_userdata_rtr.router)   # 用户信息类数据云备份：设置/收藏/历史 + Cookie 密文（2026-10-16）
 from routers import cloud_drive as _cloud_drive_rtr
 app.include_router(_cloud_drive_rtr.router)   # 网盘文件源（阶段 0：百度网盘直链解析 + BDUSS 凭据）
+from routers import bgm_cloud as _bgm_cloud_rtr
+app.include_router(_bgm_cloud_rtr.router)   # 在线配乐曲库：云端清单 + 按需下载到本机
 # 账号 / per-user 会员解析（A1+B2）：供各路由经 request 取当前用户态 store。
 # 必须在模块顶层定义（与 member_store 同级），否则 routers 里 `import app` 取不到。
 from user_membership import get_current_user_id, current_member_store
