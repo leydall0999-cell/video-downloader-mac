@@ -175,6 +175,10 @@ run_one test_commentary_routes.py
 #                                        （ts=0 被 `0.0 < ts < te` 静默漏掉）。含 fold 与裁剪判据必须一致
 #                                        的不变量 + 「调用方不许再抄一份判据」的静态守卫
 run_one test_commentary_range_trim.py
+#   6a2. test_commentary_render_range.py —— 2026-11-09 声画错位事故回归：审核保存不得抹掉素材区间指纹
+#                                           （range_start/range_end/src_duration），render 内存态丢失时
+#                                           回落 script.json 顶层；以及相对秒→绝对秒还原、整片不退化
+run_one test_commentary_render_range.py
 #   6b. test_clone_env.py             —— 本地语音克隆「按需安装」环境判定（候选优先级 / 半成品驳回 /
 #                                        磁盘不足拦截 / 非 Apple Silicon 拒绝 / 全程不得改进程级 HF_ENDPOINT）
 run_one test_clone_env.py
