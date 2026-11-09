@@ -3499,6 +3499,10 @@
            不用重新生成脚本。⚠️ 别把这排按钮挪进滚动列表内部，否则永远滚不到。 -->
       <div class="com-seg-addbar" data-page-node-id="comSegAddbar">
         <button type="button" class="btn btn-sm btn-ghost com-seg-add" id="comSegAddAd" title="插入一段广告口播 / 补充对白：时间可自由填写，渲染时用当前配音念出来" data-page-node-id="comSegAddAdBtn">＋ 插入广告口播</button>
+        <!-- 2026-11-09 用户：「加个自动校准，比如文字多了、匹配的时间少了，能够自动调整」。
+             按字数把每段的结束时间往后撑到刚好念完（不压下一段、不越正剧片尾）；
+             撑不动的段会如实报「还差几个字」，提示精简。 -->
+        <button type="button" class="btn btn-sm btn-ghost com-seg-calib" id="comSegCalib" title="自动校准：哪段文字装不下，就把它自己的结束时间往后延到刚好念完（不会压到下一段，也不会越过片尾）" data-page-node-id="comSegCalibBtn">⚖ 自动校准</button>
         <span class="com-seg-addhint" data-page-node-id="comSegAddHint">时间按原片填写，可随时改；渲染时自动配音</span>
       </div>
       <!-- 真实的 <audio> 元素：pywebview 的 WebKit 对离屏 new Audio()/blob URL 支持不佳，

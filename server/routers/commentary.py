@@ -1154,6 +1154,22 @@ def update_script(job_id: str, payload: app.ScriptUpdateRequest) -> dict:
             except (TypeError, ValueError):
                 a, b = 0.0, 0.0
             start, end = a, b
+        elif pseg.get("user_time"):
+            # ⚖ 2026-11-09 自动校准（用户：「文字多了、匹配的时间少了，能够自动调整」）：
+            #    面板把某段的结束时间往后撑开后会带 user_time=True 提交 —— 这段的时间已经是
+            #    「按字数算过」的，必须采用 payload，否则保存后被旧时间盖回去，等于白校准。
+            #    ⚠️ 只认显式标记，且必须是一段合法区间（b > a）：不带标记的普通段行为零变化
+            #    （见 test_normal_segment_time_untouched_regression），任何旧前端都改不坏时间。
+            try:
+                a = max(0.0, float(pseg.get("start") or 0))
+                b = max(a, float(pseg.get("end") or a))
+            except (TypeError, ValueError):
+                a, b = 0.0, 0.0
+            if b > a:
+                start, end = a, b
+            else:
+                start = orig.get("start", 0)
+                end = orig.get("end", 0)
         else:
             start = orig.get("start", pseg.get("start", 0))
             end = orig.get("end", pseg.get("end", 0))

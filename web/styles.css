@@ -3731,6 +3731,18 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
 }
 .com-seg-add { white-space: nowrap; }
 .com-seg-addhint { font-size: .72rem; color: var(--text-mute); }
+/* 自动校准（2026-11-09）：平时低调，一旦有段「字多时长少」就转琥珀色并把段数写在按钮上，
+   让用户不用逐条比对字数也知道该点它。 */
+.com-seg-calib { white-space: nowrap; }
+.com-seg-calib.is-warn {
+  color: #b45309; border: 1px solid rgba(245,158,11,.45);
+  background: rgba(245,158,11,.10);
+}
+.com-seg-calib.is-warn:hover { background: rgba(245,158,11,.18); }
+/* 普通解说段也给了删除按钮（2026-11-09 用户：「支持原解说文字框可删除」）：
+   常显会满屏垃圾桶，平时压到半透明、鼠标进卡片才点亮。 */
+.com-seg-row:not(.is-ad) .com-seg-del { opacity: .45; }
+.com-seg-row:not(.is-ad):hover .com-seg-del { opacity: 1; }
 
 .com-seg-text {
   width: 100%; box-sizing: border-box; resize: vertical;

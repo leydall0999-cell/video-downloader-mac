@@ -112,12 +112,35 @@ def test_normal_segment_time_untouched_regression():
     assert "ad" not in seg, "普通段不该被写成广告段"
 
 
+# ── 1b. 自动校准（2026-11-09 用户：「文字多了、匹配的时间少了，能够自动调整」）── #
+def test_calibrated_segment_adopts_user_time():
+    """★核心：带 user_time 的普通段，start/end 取 payload（校准后的窗口），不许被旧时间盖回去。"""
+    orig = [{"start": 778.3, "end": 779.3, "narration": "很长的一段旁白", "note": "高光"}]
+    sp, jid = _with_script(orig)
+    _put(jid, [{"start": 778.3, "end": 793.9, "narration": "很长的一段旁白",
+                "note": "高光", "user_time": True}])
+    seg = json.loads(pathlib.Path(sp).read_text(encoding="utf-8"))["segments"][0]
+    assert (seg["start"], seg["end"]) == (778.3, 793.9), f"校准后的窗口没落盘：{seg}"
+    assert seg["note"] == "高光", "校准不该动情绪标签"
+    assert "ad" not in seg, "校准过的普通段不是广告段，不该带 ad 标记"
+
+
+def test_user_time_needs_valid_span():
+    """user_time 但区间不合法（0/0）⇒ 退回原时间，绝不能把段写成 0 时长（渲染会被整段丢掉）。"""
+    orig = [{"start": 10.0, "end": 14.0, "narration": "A", "note": ""}]
+    sp, jid = _with_script(orig)
+    _put(jid, [{"start": 0, "end": 0, "narration": "A", "note": "", "user_time": True}])
+    seg = json.loads(pathlib.Path(sp).read_text(encoding="utf-8"))["segments"][0]
+    assert (seg["start"], seg["end"]) == (10.0, 14.0), f"坏区间没退回原时间：{seg}"
+
+
 # ── 2. 前端静态守卫：四环接线缺一不可 ─────────────────────────────────── #
 def test_frontend_wiring():
     with open(os.path.join(_ROOT, "web", "index.html"), encoding="utf-8") as f:
         html = f.read()
     assert 'id="comSegAddAd"' in html, "缺少「＋ 插入广告口播」入口"
     assert "com-seg-addbar" in html
+    assert 'id="comSegCalib"' in html, "缺少「⚖ 自动校准」入口"
 
     with open(os.path.join(_ROOT, "web", "app.js"), encoding="utf-8") as f:
         js = f.read()
@@ -130,6 +153,12 @@ def test_frontend_wiring():
         ("comAdResort", "按时间重排（改完时间能挪到对应位置）"),
         ("currentScriptAdDrafts", "未保存草稿要能在时间轴上看到"),
         ("const base = orig.map(() => null)", "★保存必须与原始段索引对齐（不许退回过滤式）"),
+        ("const comAutoCalibrate", "★自动校准主逻辑"),
+        ("comApplyRowSpan", "校准改时间必须走同一个写入口"),
+        ("user_time: true", "★校准后的段要带 user_time，后端才采用新窗口"),
+        ("dataset.calibrated", "记录「这段时间被校准过」"),
+        ("currentScriptDeleted", "普通段删除要记索引（否则时间轴留幽灵段）"),
+        ("com-seg-del", "每段都有删除按钮"),
     ]:
         assert needle in js, f"前端缺少{why}：{needle}"
     # 索引对齐的两种落点：广告段占原位置 / 新广告追加末尾
@@ -140,7 +169,8 @@ def test_frontend_wiring():
 
     with open(os.path.join(_ROOT, "web", "styles.css"), encoding="utf-8") as f:
         css = f.read()
-    for needle in (".com-seg-row.is-ad", ".com-seg-tin", ".com-seg-addbar", ".com-tl-seg.is-ad"):
+    for needle in (".com-seg-row.is-ad", ".com-seg-tin", ".com-seg-addbar", ".com-tl-seg.is-ad",
+                   ".com-seg-calib"):
         assert needle in css, f"样式缺失：{needle}"
 
 
@@ -163,6 +193,8 @@ _TESTS = [
     test_ad_segment_reposition_after_reopen,
     test_ad_time_is_sanitized,
     test_normal_segment_time_untouched_regression,
+    test_calibrated_segment_adopts_user_time,
+    test_user_time_needs_valid_span,
     test_frontend_wiring,
     test_render_pipeline_accepts_ad_note,
 ]

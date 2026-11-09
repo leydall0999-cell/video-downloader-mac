@@ -12085,15 +12085,25 @@ el.dwVidPlayer.hidden = true;
   const AD_DEFAULT_DUR = 3.0;   // 新插入广告段的默认时长（秒）
   const isAdSeg = (seg) => !!seg && String(seg.note || '') === AD_NOTE;
 
-  /** 取某段「按可用时长能装多少字」的预算：普通段走后端 budgets，广告段按自己的窗口临时算。
-   *  语速常量与后端 NARRATION_CHARS_PER_SEC 对齐（5 字/秒）。 */
+  /** 语速估算（字/秒）。🔴 必须与后端 NARRATION_CHARS_PER_SEC 完全一致：
+   *  两边口径一错，就会出现「面板说装得下、保存后后端仍报超长」的互相打脸。 */
+  const CPS = 5.0;
+
+  /** 按窗口时长算能装多少字（与后端 _narration_budget 同口径：向下取整，至少 1）。 */
+  const budgetOfDur = (dur) => {
+    const d = Number(dur);
+    if (!isFinite(d) || d <= 0) return 0;
+    return Math.max(1, Math.floor(d * CPS + 1e-9));
+  };
+
+  /** 取某段「按可用时长能装多少字」的预算。
+   *  2026-11-09 起每行 textarea 都带 data-dur（原片秒窗口），**优先用行上的实测值**：
+   *  自动校准改完时间后窗口变了，而后端 budgets 是载入那一刻的快照 —— 继续拿它算，
+   *  会出现「时间已经撑够、字数提示还红着」的假告警。 */
   const segBudgetOf = (ta) => {
     if (!ta) return 0;
-    const row = ta.closest ? ta.closest('.com-seg-row') : null;
-    if (row && row.classList.contains('is-ad')) {
-      const dur = parseFloat(ta.dataset.dur || '');
-      return (isFinite(dur) && dur > 0) ? Math.max(1, Math.round(dur * 5)) : 0;
-    }
+    const d = parseFloat(ta.dataset.dur || '');
+    if (isFinite(d) && d > 0) return budgetOfDur(d);
     const idx = parseInt(ta.dataset.idx, 10);
     return (currentScriptBudgets && currentScriptBudgets[idx]) || 0;
   };
@@ -12121,8 +12131,10 @@ el.dwVidPlayer.hidden = true;
     box.classList.toggle('over', over);
     ta.classList.toggle('over', over);
     box.title = over
-      ? `超出约 ${n - budget} 字：原速模式渲染时尾部可能被截断，建议精简到 ${budget} 字以内`
+      ? `超出约 ${n - budget} 字：点下面的「⚖ 自动校准」把这段的结束时间往后延，或精简到 ${budget} 字以内`
       : '';
+    // 有段超长就把「自动校准」点亮并把段数写上去（用户不用自己逐条比字数）
+    refreshCalibBtn();
   };
 
   /** 全量刷新（载入 / 换音色后调用）。 */
@@ -12149,6 +12161,140 @@ el.dwVidPlayer.hidden = true;
     const hiRaw = Number(currentScriptRangeEnd) || 0;
     const hi = hiRaw > lo + 0.5 ? hiRaw : vidDur;
     return { lo, hi: hi > lo ? hi : (vidDur || lo + 60), vidDur };
+  };
+
+  /** 一行的窗口 [起点, 终点]（**原片秒**）。
+   *  广告段读 dataset（草稿/已落盘），普通段读 currentScriptSegments；
+   *  面板上显示的时间一律是原片时间，所以这里也统一在原片坐标里算 ——
+   *  别再踩「片段内 0 起 vs 原片 9:00 起」的偏移坑。 */
+  const comRowSpan = (row) => {
+    if (!row) return null;
+    const ta = row.querySelector('.com-seg-text');
+    if (!ta) return null;
+    const off = Number(currentScriptRangeStart) || 0;
+    if (row.classList.contains('is-ad')) {
+      const a = parseFloat(ta.dataset.start);
+      const b = parseFloat(ta.dataset.end);
+      if (!isFinite(a) || !isFinite(b)) return null;
+      return { a: a + off, b: b + off };
+    }
+    const idx = parseInt(ta.dataset.idx, 10);
+    const o = (Array.isArray(currentScriptSegments) ? currentScriptSegments : [])[idx];
+    if (!o) return null;
+    return { a: (Number(o.start) || 0) + off, b: (Number(o.end) || 0) + off };
+  };
+
+  /** 把一行的窗口改成 [a, b]（原片秒）。
+   *  普通段写回 currentScriptSegments，广告段写回输入框 + 草稿/dataset ——
+   *  两条路径都走这一个口子，免得「只改了一半」导致显示与落盘对不上。 */
+  const comApplyRowSpan = (row, a, b) => {
+    const ta = row.querySelector('.com-seg-text');
+    if (!ta) return;
+    const off = Number(currentScriptRangeStart) || 0;
+    const A = Math.max(0, Number(a) || 0);
+    const B = Math.max(A + 0.2, Number(b) || 0);
+    const dur = B - A;
+    const s = A - off, e = B - off;
+    ta.dataset.start = s.toFixed(2);
+    ta.dataset.end = e.toFixed(2);
+    ta.dataset.dur = dur.toFixed(2);
+    if (row.classList.contains('is-ad')) {
+      const tin = row.querySelectorAll('.com-seg-tin');
+      if (tin.length >= 2) { tin[0].value = fmtTs(A); tin[1].value = fmtTs(B); }
+      const lbl = row.querySelector('.com-seg-durlbl');
+      if (lbl) lbl.textContent = `(${dur.toFixed(1)}s)`;
+      if (row._adDraft) { row._adDraft.start = s; row._adDraft.end = e; }
+    } else {
+      const idx = parseInt(ta.dataset.idx, 10);
+      const o = (Array.isArray(currentScriptSegments) ? currentScriptSegments : [])[idx];
+      if (o) { o.start = s; o.end = e; }
+      // 「这段的时间被用户/校准定过了」→ 保存时带 user_time，后端才采用它
+      //（普通段默认仍以 script.json 原时间为准，防前端误传 0 把时间清空）
+      ta.dataset.calibrated = '1';
+      const tEl = row.querySelector('.com-seg-time');
+      if (tEl) tEl.textContent = `${fmtTs(A)} – ${fmtTs(B)} (${dur.toFixed(1)}s)`;
+    }
+    refreshSegCount(ta);
+  };
+
+  /** ⚖ 自动校准（2026-11-09 用户：「文字多了、匹配的时间少了，能够自动调整」）。
+   *
+   *  规则（保守、只动自己的结束时间，绝不挪别人的起点）：
+   *    ① 只处理「字数 > 窗口时长能装下的字数」的段；
+   *    ② 需要的时长 = 字数 ÷ 5 字/秒（与后端 NARRATION_CHARS_PER_SEC 同源）；
+   *    ③ 终点最多延到「起点严格在本段之后的最近一段的起点」（留 0.1s 呼吸）和正剧片尾；
+   *       起点相同/更早的段（例如覆盖整段的广告）不算墙 —— 它们本来就跟本段重叠；
+   *    ④ 延完仍装不下的，如实报还差多少字（这时唯一的解是精简文字）。
+   *  为什么是「延自己的结束」而不是「把后面的段整体往后推」：后面的段是 AI 按画面挑的高光，
+   *  推走就变成「说到这里、画面已经是别处」，比字幕更破坏成片。
+   */
+  const comAutoCalibrate = () => {
+    if (!el.comScriptSegments) return;
+    const { hi } = comAdBounds();
+    const items = [];
+    Array.prototype.forEach.call(el.comScriptSegments.children, (row) => {
+      const ta = row.querySelector ? row.querySelector('.com-seg-text') : null;
+      if (!ta) return;
+      const sp = comRowSpan(row);
+      if (!sp) return;
+      items.push({ row, a: sp.a, b: sp.b, n: comSegChars(ta.value) });
+    });
+    items.sort((x, y) => x.a - y.a);
+
+    let fixed = 0, blocked = 0, shortChars = 0, ok = 0;
+    items.forEach((it) => {
+      if (!it.n) return;
+      const budget = budgetOfDur(it.b - it.a);
+      if (budget && it.n <= budget) { ok += 1; return; }
+      const need = Math.round((it.n / CPS) * 10) / 10;
+      let limit = hi > it.a ? hi : it.a + need;
+      items.forEach((other) => {
+        if (other === it) return;
+        const wall = other.a - 0.1;
+        if (other.a > it.a + 0.15 && wall < limit) limit = wall;
+      });
+      limit = Math.max(limit, it.a + 0.2);
+      const want = Math.min(it.a + need, limit);
+      const room = want - it.a;
+      if (want - it.b < 0.05) {           // 后面被顶死，一点都撑不动
+        blocked += 1;
+        shortChars += Math.max(0, Math.ceil((need - room) * CPS));
+        return;
+      }
+      comApplyRowSpan(it.row, it.a, want);
+      it.b = want;
+      if (room + 0.05 < need) {           // 撑到墙了，还是念不完
+        blocked += 1;
+        shortChars += Math.max(0, Math.ceil((need - room) * CPS));
+      } else {
+        fixed += 1;
+      }
+    });
+
+    comAdResort();
+    comTlSync();
+    refreshAllSegCounts();
+    refreshCalibBtn();
+
+    el.comScriptStatus.hidden = false;
+    if (!fixed && !blocked) {
+      el.comScriptStatus.className = 'com-script-status com-script-ok';
+      el.comScriptStatus.textContent = `各段时长都够念（${ok} 段），不用校准 ✓`;
+      return;
+    }
+    el.comScriptStatus.className = blocked ? 'com-script-status com-script-warn' : 'com-script-status com-script-ok';
+    let msg = `已把 ${fixed} 段的结束时间延到刚好念完`;
+    if (blocked) msg += `；还有 ${blocked} 段后面被下一段或片尾顶住，仍差约 ${shortChars} 字，建议精简`;
+    el.comScriptStatus.textContent = msg + '。点「保存修改」生效';
+  };
+
+  /** 「自动校准」按钮外观：有段超长就点亮并把段数写上去。 */
+  const refreshCalibBtn = () => {
+    const b = $('comSegCalib');
+    if (!b) return;
+    const n = countOverLimitSegs();
+    b.textContent = n ? `⚖ 自动校准 · ${n} 段超长` : '⚖ 自动校准';
+    b.classList.toggle('is-warn', n > 0);
   };
 
   /** 生成一张审核卡片（普通解说段 / 广告口播段共用）。
@@ -12182,8 +12328,9 @@ el.dwVidPlayer.hidden = true;
       <span class="com-seg-time">${fmtTs(a)} – ${fmtTs(b)} (${dur.toFixed(1)}s)</span>
       ${seg.note ? `<span class="com-seg-note">${escHtml(seg.note)}</span>` : ''}
       <span class="com-seg-count" data-idx="${idx}"></span>
+      <button type="button" class="com-seg-del" title="删除这一段（点「保存修改」后生效，渲染时不再出现）" data-page-node-id="comSegDelNormalBtn">🗑</button>
     </div>
-    <textarea class="adv-input com-seg-text" data-idx="${idx}" rows="3">${escHtml(seg.narration || '')}</textarea>`;
+    <textarea class="adv-input com-seg-text" data-idx="${idx}" data-dur="${dur.toFixed(2)}" data-start="${Math.max(0, Number(seg.start) || 0).toFixed(2)}" data-end="${Math.max(0, Number(seg.end) || 0).toFixed(2)}" rows="3">${escHtml(seg.narration || '')}</textarea>`;
     return row;
   };
 
@@ -12306,6 +12453,7 @@ el.dwVidPlayer.hidden = true;
       currentScriptRangeStart = _rangeStart;  // 时间轴按原片坐标画（成片段落要整体右移这段）
       currentScriptRangeEnd = _rangeEnd;      // 广告段可填的时间上限（原片时间）
       currentScriptAdDrafts = [];             // 换/重载脚本：未落盘的广告草稿一律作废
+      currentScriptDeleted = new Set();        // 同理，删除记录也按「这一份脚本」重新算
       currentScriptBudgets = data.budgets || [];  // 每段的字数预算（语速常量由后端统一给出）
       comTlSync();  // 三轨时间轴：脚本就绪即把「旁白 / 字幕」两轨按 start/end 画出来
       // 按时间顺序落卡片（广告段改完时间要能挪到对应位置）。空旁白段＝已经删掉的占位
@@ -12336,7 +12484,9 @@ el.dwVidPlayer.hidden = true;
         const row = t.closest('.com-seg-row');
         if (row) comAdCommitTime(row);
       };
-      // 删除广告段（普通解说段不提供删除按钮，避免误删整段成片结构）
+      // 删除一段（2026-11-09 用户：「支持原解说文字框可删除」）。
+      // 普通段：只记索引 → 保存时那一格提交空串，管线跳过（段位仍保留，索引不串行）。
+      // 广告草稿：连草稿一起撤掉，不然时间轴上还留着一条 -1 的幽灵块。
       el.comScriptSegments.onclick = (ev) => {
         const btn = ev.target && ev.target.closest ? ev.target.closest('.com-seg-del') : null;
         if (!btn) return;
@@ -12347,13 +12497,26 @@ el.dwVidPlayer.hidden = true;
         if (row._adDraft) {
           const k = currentScriptAdDrafts.indexOf(row._adDraft);
           if (k >= 0) currentScriptAdDrafts.splice(k, 1);
+        } else {
+          const ta = row.querySelector('.com-seg-text');
+          const idx = ta ? parseInt(ta.dataset.idx, 10) : -1;
+          if (idx >= 0) currentScriptDeleted.add(idx);
         }
         row.remove();
         comTlSync();
+        refreshCalibBtn();
+        el.comScriptStatus.hidden = false;
+        el.comScriptStatus.className = 'com-script-status';
+        el.comScriptStatus.textContent = row.classList.contains('is-ad')
+          ? '已移除这段广告（点「保存修改」生效）'
+          : '已删除这一段（点「保存修改」后不再出现在成片里）';
       };
       // 「＋ 插入广告口播」入口（index.html 里在列表下方常驻）
       const _addAdBtn = $('comSegAddAd');
       if (_addAdBtn) _addAdBtn.onclick = () => comAddAdSeg();
+      // ⚖ 自动校准：字多时长少的段，自己把结束时间往后撑
+      const _calibBtn = $('comSegCalib');
+      if (_calibBtn) _calibBtn.onclick = () => comAutoCalibrate();
       refreshAllSegCounts();
 
       el.comScriptStatus.hidden = true;
@@ -12421,7 +12584,23 @@ el.dwVidPlayer.hidden = true;
         else if (narration) ads.push(cell);   // 空广告不落盘
         return;
       }
-      if (idx >= 0 && idx < base.length) base[idx] = narration;
+      if (idx >= 0 && idx < base.length) {
+        // ⚖ 自动校准动过时间的普通段：带 user_time 提交，后端才采用面板里的 start/end
+        // （不带标记的普通段仍以 script.json 原时间为准，防前端误传把时间清空）。
+        if (ta.dataset.calibrated === '1') {
+          const st = Math.max(0, parseFloat(ta.dataset.start) || 0);
+          const en = Math.max(st, parseFloat(ta.dataset.end) || 0);
+          base[idx] = {
+            start: st,
+            end: en,
+            narration,
+            note: (orig[idx] && orig[idx].note) || '',
+            user_time: true,
+          };
+        } else {
+          base[idx] = narration;
+        }
+      }
     });
     const segments = orig.map((o, i) => {
       const cell = base[i];
@@ -12460,7 +12639,7 @@ el.dwVidPlayer.hidden = true;
           return isAd ? '广告段' : `#${o.index}`;
         }).join('、');
         el.comScriptStatus.textContent =
-          `已保存，但 ${over.length} 段超出时长（${ids}）：原速渲染时尾部可能被截断，建议精简`;
+          `已保存，但 ${over.length} 段字数超出时长（${ids}）：渲染时这段画面会顺延多播几秒，可能与相邻段重复，建议精简或调大时长`;
         el.comScriptStatus.className = 'com-script-status com-script-warn';
         el.comScriptStatus.hidden = false;   // 告警常驻，不自动消失
       } else {
@@ -12485,6 +12664,7 @@ el.dwVidPlayer.hidden = true;
         r._adDraft = null;
       });
       currentScriptAdDrafts = [];
+      currentScriptDeleted = new Set();   // 落盘后空旁白段已由 narration 为空表达，删除记录可以清空
       currentScriptSegments = segments;
       comTlSync();
     } catch (err) {
@@ -12912,6 +13092,12 @@ el.dwVidPlayer.hidden = true;
   // 面板上新插入、还没点「保存修改」的广告段草稿。只供时间轴即时显示用（时间轴读
   // currentScriptSegments，草稿不在里面）；保存成功后这些段已并入 segments，草稿清空。
   let currentScriptAdDrafts = [];
+  // 面板上被删掉的原始段索引（2026-11-09 用户：「支持原解说文字框可删除」）。
+  // 删除只是把卡片从面板上撤掉，**点「保存修改」才落盘**：saveScript 按原始索引铺等长数组，
+  // 这些格子留空串 ⇒ 后端保留段位但 narration 为空 ⇒ 渲染管线 valid_segs 直接跳过。
+  // 之所以要单独记一份：currentScriptSegments 里那段旁白还在（索引对齐要用它的时间戳），
+  // 不记的话时间轴会继续画一条「点得动但面板上找不到」的幽灵段。
+  let currentScriptDeleted = new Set();
 
   /** edge-tts 中文 Neural 音色可选列表。
    *  只保留 edge-tts list_voices() 真实返回、且经实测稳定的音色。
@@ -17399,6 +17585,7 @@ el.dwVidPlayer.hidden = true;
     const segs = [];
     (Array.isArray(currentScriptSegments) ? currentScriptSegments : []).forEach((sg, i) => {
       if (!String(sg.narration || '').trim()) return;
+      if (currentScriptDeleted && currentScriptDeleted.has(i)) return;   // 面板上刚删掉、还没保存
       segs.push(Object.assign({}, sg, { __idx: i }));
     });
     (currentScriptAdDrafts || []).forEach((d) => segs.push(Object.assign({}, d, { __idx: -1 })));
