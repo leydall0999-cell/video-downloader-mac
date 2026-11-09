@@ -2046,6 +2046,17 @@ def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit
         else:
             ts, te = 0.0, src_dur   # 整片：展示与 ETA 都用整片时长
 
+        # 🔴 2026-11-09 用户：「选了 10:00–15:00，解说文案还是从头开始说」。
+        # 实际处理区间是对的（只转写 300s），但管线拿到的片段时间轴从 0 起，
+        # 审核面板原样显示就成了「2:11 / 2:22」——用户对不上自己选的 10 分钟，误判成没按范围生成。
+        # 这里把「这段在源片里的绝对区间」记进 job，供 /api/commentary/script 把时间换算回原片位置。
+        with _commentary_lock:
+            _job = commentary_jobs.get(job_id)
+            if _job is not None:
+                _job["range_start"] = round(ts, 3)
+                _job["range_end"] = round(te, 3)
+                _job["src_duration"] = round(float(src_dur or 0.0), 3)
+
         in_file = in_dir / f"{base}.mp4"
         if in_file.exists() or in_file.is_symlink():
             in_file.unlink()

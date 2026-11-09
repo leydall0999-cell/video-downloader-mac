@@ -3660,6 +3660,12 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
 .com-voice-label { font-size: .82rem; color: var(--text-mute); white-space: nowrap; }
 .com-voice-select { min-width: 140px; }
 .com-script-head-actions { flex-wrap: wrap; row-gap: .35rem; }
+/* 2026-11-09：裁剪过的片子标出「这段在原片的绝对区间」，时间按原片位置显示时的说明条 */
+.com-script-range {
+  margin-bottom: .55rem; padding: .4rem .6rem; border-radius: var(--radius-sm, 6px);
+  background: rgba(59, 130, 246, .08); color: var(--text-mute);
+  font-size: .74rem; line-height: 1.45;
+}
 .com-script-segments {
   display: flex; flex-direction: column; gap: .75rem;
   max-height: 50vh; overflow-y: auto; padding-right: .25rem;

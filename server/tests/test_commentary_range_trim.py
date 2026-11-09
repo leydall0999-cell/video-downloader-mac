@@ -133,7 +133,35 @@ def test_run_uses_shared_trim_decision():
         assert bad not in src, f"发现散布在别处的裁剪判据（会把 ts=0 漏掉）：{bad}"
 
 
+def test_range_offset_surfaces_in_script_api():
+    """★2026-11-09 用户：「选了 10:00–15:00，解说文案还是从头开始说」。
+
+    实证：裁剪本身是对的（步骤写「只处理 600~900s 这段，共 300s」、wav 恰好 300s、
+    转写内容就是那段），但管线拿到的片段**时间轴从 0 起**，审核面板原样显示成 2:11 / 2:22
+    —— 用户对不上自己选的 10 分钟，误判成「没按范围生成」。
+    修法：job 记下绝对区间，`/api/commentary/script` 回传，前端把时间显示换算成原片位置。
+    本用例守四环接线，任一环掉了就退回「显示 2:11」的旧观感。
+    """
+    root = os.path.dirname(_SERVER_DIR)
+    with open(os.path.join(_SERVER_DIR, "app.py"), encoding="utf-8") as f:
+        app_src = f.read()
+    assert '_job["range_start"] = round(ts, 3)' in app_src, \
+        "裁剪后必须把绝对起点记进 job（否则前端无从换算）"
+    with open(os.path.join(_SERVER_DIR, "routers", "commentary.py"), encoding="utf-8") as f:
+        rt_src = f.read()
+    assert '"range_start": float(job.get("range_start") or 0.0)' in rt_src, \
+        "/api/commentary/script 必须回传 range_start"
+    with open(os.path.join(root, "web", "app.js"), encoding="utf-8") as f:
+        js = f.read()
+    assert "seg.start + _rangeStart" in js, "审核面板必须把片段内时间换算成原片位置"
+    assert "com-script-range" in js, "缺少「本片只处理原片 X–Y」说明条"
+    with open(os.path.join(root, "web", "styles.css"), encoding="utf-8") as f:
+        css = f.read()
+    assert ".com-script-range" in css, "说明条样式缺失"
+
+
 _TESTS = [
+    test_range_offset_surfaces_in_script_api,
     test_fold_head_to_middle_keeps_start_zero,    test_fold_unknown_duration_reports_whole_span,
     test_needs_trim_head_to_middle,
     test_needs_trim_full_span_skipped,

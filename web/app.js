@@ -12134,13 +12134,28 @@ el.dwVidPlayer.hidden = true;
 
       // 逐段渲染可编辑行
       const segs = data.segments || [];
+      // 🔴 2026-11-09（用户：「选了 10:00–15:00，文案还是从头开始说」）：
+      //   裁剪过的片子，segments.start/end 是**片段内**相对秒（0 起），而用户是按原片时间圈范围。
+      //   显示时把原片起点加回来，并在列表上方标出这段在原片的位置，避免「2:11 就是片头」的误判。
+      const _rangeStart = Math.max(0, Number(data.range_start) || 0);
+      const _rangeEnd = Math.max(0, Number(data.range_end) || 0);
+      const _segTipHost = el.comScriptSegments.parentElement;
+      const _segTipPrev = _segTipHost && _segTipHost.querySelector('.com-script-range');
+      if (_segTipPrev) _segTipPrev.remove();
+      if (_rangeStart > 0.5 && _segTipHost) {
+        const _tip = document.createElement('div');
+        _tip.className = 'com-script-range';
+        _tip.textContent = '本片只处理原片 ' + fmtTs(_rangeStart) + ' – ' + fmtTs(_rangeEnd)
+          + '；下方时间是原片位置（成片本身仍从 0 开始）';
+        _segTipHost.insertBefore(_tip, el.comScriptSegments);
+      }
       currentScriptSegments = segs;  // 保留原始时间戳+note，供 saveScript 合并
       currentScriptBudgets = data.budgets || [];  // 每段的字数预算（语速常量由后端统一给出）
       comTlSync();  // 三轨时间轴：脚本就绪即把「旁白 / 字幕」两轨按 start/end 画出来
       segs.forEach((seg, idx) => {
         const row = document.createElement('div');
         row.className = 'com-seg-row';
-        const dur = `${fmtTs(seg.start)} – ${fmtTs(seg.end)}`;
+        const dur = `${fmtTs(seg.start + _rangeStart)} – ${fmtTs(seg.end + _rangeStart)}`;
         row.innerHTML = `<div class="com-seg-meta">
           <span class="com-seg-idx">#${idx + 1}</span>
           <span class="com-seg-time">${dur} (${(seg.end - seg.start).toFixed(1)}s)</span>

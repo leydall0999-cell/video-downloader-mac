@@ -1108,7 +1108,13 @@ def get_script(job_id: str) -> dict:
                if isinstance(s, dict) else 0 for s in segs]
     return {"job_id": job_id, "title": data.get("title", ""),
             "voice": data.get("voice", ""),
-            "segments": segs, "segment_count": len(segs), "budgets": budgets}
+            "segments": segs, "segment_count": len(segs), "budgets": budgets,
+            # 🔴 2026-11-09：裁剪过的片子，segments 的 start/end 是**片段内**相对时间（0 起），
+            # 而用户是按原片时间划的范围（如 10:00–15:00）。把绝对区间一并给出，
+            # 前端据此把时间显示换算成原片位置，避免「选了 10 分钟却显示 2:11」的误判。
+            "range_start": float(job.get("range_start") or 0.0),
+            "range_end": float(job.get("range_end") or 0.0),
+            "src_duration": float(job.get("src_duration") or 0.0)}
 
 @router.put("/api/commentary/script/{job_id}")
 def update_script(job_id: str, payload: app.ScriptUpdateRequest) -> dict:
