@@ -1209,6 +1209,39 @@ def update_script(job_id: str, payload: app.ScriptUpdateRequest) -> dict:
     return {"job_id": job_id, "status": "updated",
             "segment_count": len(payload.segments), "over_limit": over_limit}
 
+def _restore_abs_drama(trim_start: float,
+                       drama_start_sec: float | None,
+                       drama_end_sec: float | None):
+    """把 script.json 的 options 里「裁剪后相对秒」的正剧窗口还原成原片绝对秒。
+
+    🔴🔴 2026-11-09 事故根因（用户「最新一次解说完全对不上视频内容」）：
+
+    生成脚本时 `_commentary_run` 会先把源片裁成 [ts, te]，再把正剧窗口换算到
+    **裁剪后时间轴**（`_n_de = 绝对秒 - ts`）传给管线；管线把这个相对值原样
+    写进 script.json 的 options。审核后出片时若把 options 里的相对值直接当成
+    原片绝对秒回传给 `_fold_commentary_range`，区间会被二次压缩：
+
+        trim=540~1200、options.drama_end_sec=660
+          → te = min(1200, 660) = 660 → 只裁出 540~660 共 120s
+
+    而脚本段落时间戳是按 660s 片段生成的（写到 652.94s），于是全部越界；
+    管线又拿到 `--drama-end-sec 120`，原速模式把每段 s 钳到 `hi-0.1-vdur`，
+    画面全堆在开头那一小段 ⇒ 旁白讲后半段剧情、画面停在片头，成片彻底错乱。
+
+    渲染必须复用「脚本生成时那一次」的裁剪区间，因此这里把相对秒加回 ts。
+    trim_start=0（未裁剪 / 覆盖整片）时 options 里本来就是绝对秒，原样返回。
+    """
+    off = float(trim_start or 0.0)
+    ds = drama_start_sec
+    de = drama_end_sec
+    if off > 0:
+        if ds is not None and float(ds or 0) > 0:
+            ds = float(ds) + off
+        if de is not None and float(de or 0) > 0:
+            de = float(de) + off
+    return ds, de
+
+
 @router.post("/api/commentary/render/{job_id}")
 def render_script(job_id: str, vertical: bool = app.Form(False), voice: str = app.Form(""),
                  export_jianying: str = app.Form(""),
@@ -1289,6 +1322,15 @@ def render_script(job_id: str, vertical: bool = app.Form(False), voice: str = ap
     # 复用父任务的裁剪参数：同一源+起止会命中确定性命名的裁剪文件，直接吃裁剪后视频渲染
     trim_start = float(job.get("trim_start", 0.0) or 0.0)
     trim_end = float(job.get("trim_end", 0.0) or 0.0)
+    # 内存态丢失（服务重启 / 重开历史任务）时，脚本顶层已持久化原片绝对区间。
+    # 没有它就没有换算基准，宁可回落也不要拿 options 里的相对秒去当绝对秒裁。
+    if trim_end <= 0:
+        trim_start = float(seg_data.get("range_start", 0.0) or 0.0)
+        trim_end = float(seg_data.get("range_end", 0.0) or 0.0)
+    # 🔴 2026-11-09：options 里的正剧窗口是「裁剪后相对秒」，必须还原成原片绝对秒
+    # 再交给 _commentary_run，否则区间被二次压缩（详见 _restore_abs_drama）。
+    drama_start_sec, drama_end_sec = _restore_abs_drama(
+        trim_start, drama_start_sec, drama_end_sec)
 
     # 用新的 job_id 提交渲染（保留原 script 关联）
     render_job_id = app.uuid.uuid4().hex[:12]
