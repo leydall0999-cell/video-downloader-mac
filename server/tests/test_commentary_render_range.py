@@ -98,12 +98,71 @@ def test_no_regression_for_full_video():
     ok(after == (0.0, 2733.55), f"整片应原样，实际 {after}")
 
 
+def test_update_script_keeps_source_fingerprint():
+    """2026-11-09 第二次「解说对不上」事故：审核保存把素材指纹抹掉了。
+
+    现场：22:03 按原片 600~1200s（600s 裁剪片）生成脚本，脚本顶层带
+    range_start/range_end/src_duration；22:22 用户在审核面板插入广告段并保存，
+    update_script 重建 dict 只留 5 个键 ⇒ 指纹全丢；22:22:48 出片时
+    render_script 读不到回落基准，拿 2733s 整片配 600s 片段稿，
+    画面比解说早整整 600 秒。这是「同一类问题反复出现」的真正断点。
+    """
+    import json as _json
+    import pathlib as _pathlib
+    import tempfile as _tempfile
+
+    tmp = _pathlib.Path(_tempfile.mkdtemp(prefix="vdl-range-save-"))
+    sp = tmp / "script.json"
+    sp.write_text(_json.dumps({
+        "title": "少帅", "voice": "", "mode": "highlights_intro",
+        "options": {"drama_end_sec": 600.0},
+        "segments": [{"start": 117.0, "end": 131.0, "narration": "原解说", "note": ""}],
+        "range_start": 600.0, "range_end": 1200.0, "src_duration": 2733.55,
+    }, ensure_ascii=False), encoding="utf-8")
+
+    jid = "offline-range-save-test"
+    with server_app._commentary_lock:
+        server_app.commentary_jobs[jid] = {
+            "status": "script_ready", "script_path": str(sp), "voice": "",
+        }
+    payload = server_app.ScriptUpdateRequest(segments=[{
+        "start": 117.0, "end": 131.0, "narration": "改过的广告词", "note": "广告",
+        "ad": True,
+    }])
+    rt.update_script(jid, payload)
+    after = _json.loads(sp.read_text(encoding="utf-8"))
+
+    ok(after.get("range_start") == 600.0,
+       f"审核保存后 range_start 丢失：{after.get('range_start')}")
+    ok(after.get("range_end") == 1200.0,
+       f"审核保存后 range_end 丢失：{after.get('range_end')}")
+    ok(after.get("src_duration") == 2733.55,
+       f"审核保存后 src_duration 丢失：{after.get('src_duration')}")
+    ok(after.get("mode") == "highlights_intro", "原有 mode 也要保住")
+    ok(after["segments"][0]["narration"] == "改过的广告词", "本次修改必须生效")
+
+    # 以后往脚本顶层加任何新字段，都不该被「保存审核」吃掉
+    sp.write_text(_json.dumps({**after, "future_field": "keep-me"}, ensure_ascii=False),
+                  encoding="utf-8")
+    rt.update_script(jid, payload)
+    ok(_json.loads(sp.read_text(encoding="utf-8")).get("future_field") == "keep-me",
+       "保存必须继承全部顶层字段，而不是白名单重建")
+
+    # 静态守卫：不许退回「只保留固定键」的重建式写法
+    src = open(os.path.join(_ROOT, "server", "routers", "commentary.py"),
+               encoding="utf-8").read()
+    ok("data = dict(existing)" in src,
+       "update_script 必须先继承现有顶层字段（否则素材指纹会被抹掉）")
+    ok("data.update({" in src, "继承后再覆盖本次要改的字段")
+
+
 _TESTS = [
     test_accident_reproduced,
     test_restore_abs_drama,
     test_render_reuses_script_range,
     test_fallback_to_script_range,
     test_no_regression_for_full_video,
+    test_update_script_keeps_source_fingerprint,
 ]
 
 if __name__ == "__main__":

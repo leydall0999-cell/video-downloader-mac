@@ -1183,7 +1183,17 @@ def update_script(job_id: str, payload: app.ScriptUpdateRequest) -> dict:
             item["ad"] = True   # 落盘保留标记：下次打开面板这段的时间才可继续编辑
         merged.append(item)
 
-    data = {
+    # 🔴 2026-11-09「解说跟视频老是对不上」的根因：这里以前是**重建 dict**，
+    # 只保留 title/voice/segments/mode/options 五个键，把脚本顶层的
+    # range_start / range_end / src_duration（app.py::_commentary_run 落的「这份稿子
+    # 属于原片哪一段」指纹）全部抹掉。用户在审核面板改词、自动校准、插广告段后
+    # 一点保存，指纹就没了；render_script 再想从脚本回落换算基准也读不到，
+    # 于是拿整片素材配片段稿 —— 画面按整片绝对秒走，解说按片段相对秒讲，
+    # 整整错开一个 trim_start（本次《少帅》600s）。
+    # 一律先继承 existing 的全部顶层字段，只覆盖本次确实要改的几项；
+    # 以后往脚本里加任何元数据也不会被「保存审核」悄悄吃掉。
+    data = dict(existing)
+    data.update({
         "title": payload.title or existing.get("title", ""),
         "voice": payload.voice or existing.get("voice", job.get("voice", "")),
         "segments": merged,
@@ -1192,7 +1202,7 @@ def update_script(job_id: str, payload: app.ScriptUpdateRequest) -> dict:
         # 保留原始 options（剪辑选项：解说类型/高光来源/片头高光/联网/保留时长等），
         # 否则审核后渲染会丢失用户在面板上的剪辑选择
         "options": existing.get("options", {}),
-    }
+    })
     try:
         script_path.write_text(app.json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
