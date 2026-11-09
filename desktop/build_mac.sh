@@ -884,7 +884,11 @@ fi
 # 3) 离线测试（不依赖外部网络）：扫码登录 Mock 全链路 + 后端路由冒烟
 if [ -f "$REPO/server/tests/run_offline_tests.sh" ]; then
   echo "   ▶ 运行离线测试..."
-  if bash "$REPO/server/tests/run_offline_tests.sh" >/tmp/vdl_offline_test.log 2>&1; then
+  # VDL_OFFLINE_MAC_BUILD=1：标记这是「Mac 离线发布构建」门禁。
+  # 仅在此标记下跳过 3 个云端集成测试（真实云端池状态 / 网关配置隔离 / 云端回读
+  # 既有回归），它们依赖云连通或真实云端池，离线构建机不可控；开发态（无此标记）
+  # 仍全量运行，保留回归可见性。
+  if VDL_OFFLINE_MAC_BUILD=1 bash "$REPO/server/tests/run_offline_tests.sh" >/tmp/vdl_offline_test.log 2>&1; then
     echo "   ✔ 离线测试全部通过"
   else
     echo "   ❌ 离线测试失败（详见 /tmp/vdl_offline_test.log）"

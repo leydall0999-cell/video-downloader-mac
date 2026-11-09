@@ -58,10 +58,8 @@ def _read_cached_library() -> dict:
 
 
 def _save_cached_library(lib: dict) -> None:
-    p = _library_path()
-    tmp = p.with_name(".library.json.tmp")
-    tmp.write_text(json.dumps(lib, ensure_ascii=False), encoding="utf-8")
-    os.replace(str(tmp), str(p))
+    from atomic_io import atomic_write_json
+    atomic_write_json(_library_path(), lib)
 
 
 def _fetch_url(url: str, timeout: float = BGM_TIMEOUT) -> bytes:

@@ -27,15 +27,15 @@ Windows 版的绝大多数缺陷都要装到真机上才暴露（PyInstaller 不
 `desktop/ci_verify_win_installer.py` 在 windows-latest 上做。
 
 ============================================================================
-⚠️ 已知不一致（2026-10-26 发现，未擅自修改）
+⚠️ 已知不一致（已解决）
 ============================================================================
-`gateway_config._config_dir()` 是**唯一**不带 Windows 分支的配置模块：它只认
-VDL_HOME / ~/.video-downloader。也就是说 Windows 冻结版上，AI 网关配置会落到
-`~\\.video-downloader\\`，而其余 5 个模块落在 `%APPDATA%\\VideoDownloader\\`。
+`gateway_config._config_dir()` 曾是**唯一**不带 Windows 分支的配置模块（2026-10-26
+发现时登记在 KNOWN_EXCEPTIONS）。**2026-10-20 已修复**：gateway_config 补齐了
+与 llm_config / cloud_matting_config 等同构的 win32 冻结态分支，Windows 安装版
+上 AI 网关配置落点统一为 `%APPDATA%\\VideoDownloader`。
 
-这可能是有意为之，也可能是漏加分支 —— 本测试不替人做决定，**只把它显式登记
-在 KNOWN_EXCEPTIONS 并在此写明**，将来谁动到这块能一眼看到。要收紧的话：
-给 gateway_config 加上同构的 win32 分支，再把本文件顶部的说明与例外表一起改掉。
+因此本测试不再把它当例外——改为**正向钉死** gateway_config 确实处理了 win32，
+并清空 KNOWN_EXCEPTIONS。将来若谁把分支删掉，本测试会变红提醒补回。
 """
 from __future__ import annotations
 
@@ -56,9 +56,9 @@ EXPECT_APPDATA = (
     "engine_idle",
 )
 
-# 已知例外：不带 win32 分支，Windows 冻结版上会落到 ~/.video-downloader。
-# 见文件顶部说明 —— 登记在此是为了让「不一致」显性化，不是认可它。
-KNOWN_EXCEPTIONS = {"gateway_config"}
+# 已知例外表：历史上 gateway_config 是唯一不带 win32 分支的模块（2026-10-26 登记）。
+# 2026-10-20 已补齐该分支，故此处清空；若将来再出现不带 win32 的模块，登记进来。
+KNOWN_EXCEPTIONS: set[str] = set()
 
 
 def _module_source(name: str) -> str:
@@ -131,15 +131,20 @@ class WinFrozenPathLayout(unittest.TestCase):
                 got = mod._config_dir()  # type: ignore[attr-defined]
                 self.assertEqual(got, home / ".video-downloader")
 
-    def test_known_exception_still_documented(self) -> None:
-        """gateway_config 仍是唯一例外；若它被补齐分支，本测试提醒更新文档。"""
+    def test_gateway_config_now_handles_windows(self) -> None:
+        """2026-10-20 修复：gateway_config 已补齐 win32 冻结态分支，不再是已知例外。
+        钉死它确实处理了 Windows 冻结版（落点 %APPDATA%\\VideoDownloader），
+        别再退回 ~/.video-downloader；同时确认例外表已清空。"""
         src = _module_source("gateway_config")
-        self.assertNotIn(
+        self.assertIn(
             "win32", src,
-            "gateway_config 现在带 Windows 分支了 —— 请同步更新本文件顶部说明与 "
-            "KNOWN_EXCEPTIONS，并确认 Windows 上网关配置的新落点。",
+            "gateway_config 的 _config_dir 必须处理 win32 冻结态"
+            "（Windows 安装版网关配置落点）",
         )
-        self.assertIn("gateway_config", KNOWN_EXCEPTIONS)
+        self.assertEqual(
+            KNOWN_EXCEPTIONS, set(),
+            "gateway_config 已不再是例外，KNOWN_EXCEPTIONS 应清空",
+        )
 
     def test_new_config_module_must_handle_windows(self) -> None:
         """扫描守卫：任何定义 _config_dir 且用 Path.home() 的模块，必须处理 win32。

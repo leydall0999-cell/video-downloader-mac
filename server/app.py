@@ -3838,6 +3838,8 @@ def _run_crypto_job(job_id: str, lib_ids: list[str], mode: str) -> None:
                 with CRYPTO_LOCK:
                     if job:
                         job["status"] = "canceled"
+                # 取消时可能已部分改动了磁盘（加密移回收站/解密还原），失效缓存让库立即反映
+                library_mod.invalidate_library_cache(DOWNLOAD_DIR)
                 return
         src = library_mod._resolve_safe(DOWNLOAD_DIR, lid)
         if not src:
@@ -3882,6 +3884,9 @@ def _run_crypto_job(job_id: str, lib_ids: list[str], mode: str) -> None:
         if job and job.get("status") != "canceled":
             job["status"] = "completed"
             job["errors"] = errors
+    # 加密/解密都改动了磁盘（原件↔.vdlenc 互转），必须失效媒体库缓存，
+    # 否则 8s TTL 内 /api/library 仍返回旧条目，前端看不到「已加密」标记。
+    library_mod.invalidate_library_cache(DOWNLOAD_DIR)
 
 def _prune_crypto_jobs() -> None:
     if len(CRYPTO_JOBS) <= 200:

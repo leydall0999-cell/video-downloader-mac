@@ -111,6 +111,11 @@ class Ctx:
             os.environ.pop(k, None)
         for m in self._mods:
             m._config_dir = lambda: self.tmp          # noqa: SLF001 - 测试专用重定向
+        # _legacy() 会回落到 Path.home()/.video-downloader 读取真实网关配置，导致本套件
+        # 无法隔离——任何装了真网关的机器（含构建机）上，「无网关」用例永远读不到无网关，
+        # 进而误走网关、连真实 ECS 拿 502。把 Path.home 也重定向到临时目录，让回落落空。
+        self._orig_path_home = pathlib.Path.home
+        pathlib.Path.home = staticmethod(lambda: self.tmp)  # noqa: SLF001 - 测试专用重定向
 
     def write_gateway(self, url: str = "direct://http://gw.test/gw",
                       token: str = "vdlt_UNIT_TEST", enabled: bool = True) -> None:
@@ -137,6 +142,7 @@ class Ctx:
                 p.unlink()
 
     def close(self) -> None:
+        pathlib.Path.home = self._orig_path_home
         shutil.rmtree(self.tmp, ignore_errors=True)
 
 

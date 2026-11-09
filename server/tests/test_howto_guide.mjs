@@ -366,11 +366,14 @@ ok(/is-active',\s*!!\(d && d\.open && !d\.classList\.contains\('is-closed'\)\)/.
   'is-active 判定没有排除 is-closed —— 引导条已隐藏、「?」按钮却还亮着（状态自相矛盾）');
 
 // 点标题行收起（原生 toggle）也必须转成整条隐藏，否则同样留下占位态
-const toggleSeg = appJsCode.slice(
-  appJsCode.indexOf("addEventListener('toggle'"),
-  appJsCode.indexOf("addEventListener('toggle'") + 400);
-ok(toggleSeg.length > 150,
-  '定位 toggle 监听失败（找不到 addEventListener(\'toggle\') 片段）');
+// ⚠️ 必须钉死到 document 级的引导 toggle 监听（app.js:18165 附近），
+//    不能用裸 addEventListener('toggle' —— 其它视图（如步骤折叠 _sp、musicFold）
+//    也有同名监听，会抢到错误片段导致误判。
+const TOGGLE_ANCHOR = "document.addEventListener('toggle'";
+const _ti = appJsCode.indexOf(TOGGLE_ANCHOR);
+const toggleSeg = appJsCode.slice(_ti, _ti + 400);
+ok(_ti >= 0 && toggleSeg.length > 150,
+  '定位 document 级 toggle 监听失败（找不到 document.addEventListener(\'toggle\') 片段）');
 // 🔴 反向要求：toggle 里**绝不能**把「收起」转成整条隐藏。
 //    「收起」是合法默认态（除首次外每次进入都收起、只剩一行标题可点开），
 //    一旦转隐藏，用户点标题行收起后整条就消失、再也看不到。

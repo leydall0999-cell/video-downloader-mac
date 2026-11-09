@@ -560,16 +560,8 @@ def _record(status: str, message: str, *, latest: str = "", error: str = "") -> 
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:
-    try:
-        from atomic_io import atomic_write_json  # 复用项目的原子写（带文件锁）
-        atomic_write_json(path, data)
-        return
-    except Exception:
-        pass
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    from atomic_io import atomic_write_json  # 复用项目的原子写（带文件锁）
+    atomic_write_json(path, data)
 
 
 def _read_state_file() -> dict:
