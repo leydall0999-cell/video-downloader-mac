@@ -2297,6 +2297,23 @@ def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit
             tail = "\n".join(last_lines[-20:]) or "无输出"
             raise RuntimeError(f"解说管线退出码 {ret}。\n最近输出：\n{tail}")
 
+        # 🔴 2026-11-09 用户：「能不能按原片时间算呢，一目了然，不然很容易出问题，对不清时间」。
+        # job 里的 range_start 只活在内存：服务重启、重开历史任务就丢，审核面板会退回「从 0 起」显示
+        # （又变成 2:11 那种跟 10:00–15:00 对不上的数字）。把绝对区间落到 script.json 顶层，
+        # 偏移就不再依赖内存状态；/api/commentary/script 读不到 job 字段时回落到这里。
+        try:
+            _sp = _commentary_root("work") / f"{base}.script.json"
+            if _sp.exists():
+                _sd = json.loads(_sp.read_text(encoding="utf-8"))
+                _sd["range_start"] = round(float(ts or 0.0), 3)
+                _sd["range_end"] = round(float(te or 0.0), 3)
+                _sd["src_duration"] = round(float(src_dur or 0.0), 3)
+                atomic_io.atomic_write_json(_sp, _sd, mode=_sp.stat().st_mode & 0o777)
+                print(f"[解说] 原片区间已写入脚本：{float(ts or 0):.0f}~{float(te or 0):.0f}s"
+                      f"（片长 {float(src_dur or 0):.0f}s）")
+        except Exception as _range_err:  # 写不进去不影响主流程，面板退回 0 起显示
+            print(f"[解说] 原片区间写入失败（忽略）：{_range_err}")
+
         if script_only:
             # --script-only 模式：只出了 script.json，不生成成片
             script_path = _commentary_root("work") / f"{base}.script.json"

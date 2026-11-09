@@ -12145,8 +12145,8 @@ el.dwVidPlayer.hidden = true;
       if (_rangeStart > 0.5 && _segTipHost) {
         const _tip = document.createElement('div');
         _tip.className = 'com-script-range';
-        _tip.textContent = '本片只处理原片 ' + fmtTs(_rangeStart) + ' – ' + fmtTs(_rangeEnd)
-          + '；下方时间是原片位置（成片本身仍从 0 开始）';
+        _tip.textContent = '原片 ' + fmtTs(_rangeStart) + ' – ' + fmtTs(_rangeEnd)
+          + ' · 时间按原片计';
         _segTipHost.insertBefore(_tip, el.comScriptSegments);
       }
       currentScriptSegments = segs;  // 保留原始时间戳+note，供 saveScript 合并

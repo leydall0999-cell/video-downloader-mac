@@ -149,8 +149,10 @@ def test_range_offset_surfaces_in_script_api():
         "裁剪后必须把绝对起点记进 job（否则前端无从换算）"
     with open(os.path.join(_SERVER_DIR, "routers", "commentary.py"), encoding="utf-8") as f:
         rt_src = f.read()
-    assert '"range_start": float(job.get("range_start") or 0.0)' in rt_src, \
-        "/api/commentary/script 必须回传 range_start"
+    assert 'data.get("range_start")' in rt_src, \
+        "/api/commentary/script 必须在内存 job 丢失时回落到 script.json 的 range_start"
+    assert '_sd["range_start"] = round(float(ts or 0.0), 3)' in app_src, \
+        "管线收尾必须把原片区间写进 script.json（否则重启后偏移丢失，时间又对不上）"
     with open(os.path.join(root, "web", "app.js"), encoding="utf-8") as f:
         js = f.read()
     assert "seg.start + _rangeStart" in js, "审核面板必须把片段内时间换算成原片位置"
