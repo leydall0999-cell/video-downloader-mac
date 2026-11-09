@@ -285,7 +285,13 @@ def main():
     ok("守卫已登记 runner", "run_one test_bgm_cloud.py" in runner)
 
     ver = (REPO / "VERSION").read_text(encoding="utf-8").strip()
-    ok("VERSION 已升到 1.1.16", ver == "1.1.16", f"got={ver}")
+    # 比大小而不是钉死版本号：这个能力从 1.1.16 起就在了，之后每次升版都该继续通过，
+    # 否则每发一版都要来改一次测试（纯噪音，还会在构建闸门上误拦）。
+    try:
+        _vnum = tuple(int(x) for x in ver.split(".")[:3])
+    except ValueError:
+        _vnum = (0,)
+    ok("VERSION 已升到 1.1.16 或更高", _vnum >= (1, 1, 16), f"got={ver}")
     ok("changelog 含本版条目且说明留白",
        '"version": "1.1.16",\n        "date": "2026-11-09",\n        "items": [],' in changelog)
 
