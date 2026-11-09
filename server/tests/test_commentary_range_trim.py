@@ -155,9 +155,11 @@ def test_range_offset_surfaces_in_script_api():
         "管线收尾必须把原片区间写进 script.json（否则重启后偏移丢失，时间又对不上）"
     with open(os.path.join(root, "web", "app.js"), encoding="utf-8") as f:
         js = f.read()
-    assert "seg.start + _rangeStart" in js, "审核面板必须把片段内时间换算成原片位置"
     assert "currentScriptRangeStart" in js, \
         "时间轴按原片坐标绘制，必须有当前脚本的原片起点"
+    # 2026-11-09：卡片渲染抽成了 comMakeSegRow（广告段要复用），换算仍是「片段内秒 + 原片起点」
+    assert "comMakeSegRow" in js and "(Number(seg.start) || 0) + off" in js, \
+        "审核面板必须把片段内时间换算成原片位置"
     assert "comTlRenderSegs(comTlLaneNarr, segs, hasDur ? dur : 0, currentScriptRangeStart)" in js, \
         "旁白/字幕轨必须传原片起点偏移（否则选 10–15 分钟的段落全挤在时间轴最左边）"
     assert "com-script-range" in js, "缺少「原片 X–Y · 时间按原片计」说明条"

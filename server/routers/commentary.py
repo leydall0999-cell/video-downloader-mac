@@ -1141,12 +1141,31 @@ def update_script(job_id: str, payload: app.ScriptUpdateRequest) -> dict:
     merged = []
     for i, pseg in enumerate(payload.segments):
         orig = existing_segs[i] if i < len(existing_segs) else {}
-        merged.append({
-            "start": orig.get("start", pseg.get("start", 0)),
-            "end": orig.get("end", pseg.get("end", 0)),
+        # 🔴 2026-11-09 广告口播段（ad=true，用户诉求：「方便后期加入广告对白」）：
+        #    这类段的**时间由用户在审核面板里自己填**（可随意改到原片任意位置），
+        #    所以必须采用 payload 的 start/end，不能像普通段那样从原脚本回填时间——
+        #    否则用户把广告挪到别处、保存后被旧时间盖回去，等于白改。
+        #    普通段保持原逻辑（时间只认原脚本，前端传 0 也不影响），行为零变化。
+        is_ad = bool(pseg.get("ad"))
+        if is_ad:
+            try:
+                a = max(0.0, float(pseg.get("start") or 0))
+                b = max(a, float(pseg.get("end") or a))
+            except (TypeError, ValueError):
+                a, b = 0.0, 0.0
+            start, end = a, b
+        else:
+            start = orig.get("start", pseg.get("start", 0))
+            end = orig.get("end", pseg.get("end", 0))
+        item = {
+            "start": start,
+            "end": end,
             "narration": pseg.get("narration", orig.get("narration", "")),
             "note": pseg.get("note", orig.get("note", "")),
-        })
+        }
+        if is_ad:
+            item["ad"] = True   # 落盘保留标记：下次打开面板这段的时间才可继续编辑
+        merged.append(item)
 
     data = {
         "title": payload.title or existing.get("title", ""),

@@ -3700,6 +3700,38 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
   border-color: var(--danger, #dc2626) !important;
   box-shadow: 0 0 0 2px rgba(220,38,38,.12);
 }
+/* ---- 广告口播 / 补充对白段（2026-11-09）---------------------------------
+   用户诉求：审核面板里要有「空白、位置/时间可自由定」的对话条，方便后期塞广告词。
+   视觉上必须和 AI 生成的解说段一眼区分：金色左边框 + 「广告」徽标，时间是可编辑输入框。
+   ⚠️ 时间输入框里的值一律是**原片绝对时间**（与面板其它段时间口径一致）。 */
+.com-seg-row.is-ad {
+  border-left: 3px solid #f59e0b;
+  background: rgba(245, 158, 11, .05);
+}
+.com-seg-row.is-ad .com-seg-idx {
+  color: #b45309; background: rgba(245, 158, 11, .16);
+}
+.com-seg-note.is-ad { color: #92400e; background: rgba(245, 158, 11, .2); font-weight: 700; }
+.com-seg-time-edit { display: inline-flex; align-items: center; gap: .25rem; }
+.com-seg-tin {
+  width: 5.4em; padding: .12rem .3rem; font-size: .75rem; font-family: monospace;
+  text-align: center; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--bg, #fff); color: var(--text);
+}
+.com-seg-tin:focus { border-color: var(--brand); outline: none; }
+.com-seg-durlbl { font-size: .7rem; color: var(--text-mute); font-family: monospace; }
+.com-seg-del {
+  border: none; background: none; color: var(--text-mute); cursor: pointer;
+  font-size: .8rem; line-height: 1; padding: .15rem .3rem; border-radius: 4px;
+}
+.com-seg-del:hover { color: var(--danger, #dc2626); background: rgba(220,38,38,.08); }
+.com-seg-addbar {
+  display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+  margin-top: .5rem; padding-top: .5rem; border-top: 1px dashed var(--line);
+}
+.com-seg-add { white-space: nowrap; }
+.com-seg-addhint { font-size: .72rem; color: var(--text-mute); }
+
 .com-seg-text {
   width: 100%; box-sizing: border-box; resize: vertical;
   font-size: .88rem; line-height: 1.5;
@@ -6303,6 +6335,9 @@ html.com-theater { overflow: hidden; }
 /* 旁白 / 字幕段：品牌紫实心；字幕轨用同色系略浅一档以区分轨别 */
 .com-tl-seg { background: linear-gradient(135deg, #4F46E5, #6366F1); border-radius: 3px; }
 .com-tl-lane-subs .com-tl-seg { background: linear-gradient(135deg, #7C6CF0, #8B7CF6); }
+/* 广告口播段在两条轨道上都用金色（放在轨别规则之后，否则被字幕轨的紫色盖掉） */
+.com-tl-lane .com-tl-seg.is-ad,
+.com-tl-seg.is-ad { background: linear-gradient(135deg, #D97706, #F59E0B); }
 .com-tl-ruler-row { margin-top: 1px; }
 .com-tl-scale { position: relative; flex: 1 1 auto; min-width: 0; height: 13px; }
 .com-tl-tick {
@@ -6450,6 +6485,8 @@ html.com-theater { overflow: hidden; }
    让面板自身的 max-height 统一管上限，到顶后段落列表自行滚动。 */
 #comScriptPanel .com-script-segments { flex: 1 1 auto; overflow: auto; min-height: 0; max-height: none; }
 #comScriptPanel .com-script-actions { flex: none; }
+/* 广告口播入口常驻在列表下方：不许被弹性压缩吃掉（列表滚动、这排永远看得见） */
+#comScriptPanel .com-seg-addbar { flex: none; }
 /* 右上角窗口控件（2026-09-18 用户：「要放在右上角，不要放其他地方」）：
    最小化 / 关闭钉在面板右上角，做成窗口控件样式，不再混在头部灰按钮排里
    （混排时用户反馈「哪里没看到」）。absolute 相对 #comScriptPanel 本身
@@ -6485,6 +6522,7 @@ html.com-theater { overflow: hidden; }
 /* 标题条变矮，右上角控件跟着上提一点，保证垂直居中且不被 overflow 裁到 */
 #comScriptPanel.is-min .com-script-corner { top: .3rem; }
 #comScriptPanel.is-min .com-script-segments,
+#comScriptPanel.is-min .com-seg-addbar,
 #comScriptPanel.is-min .com-script-actions { display: none; }
 /* 标题条上下不再需要分隔线留白，否则白白撑高 */
 #comScriptPanel.is-min .com-script-head {

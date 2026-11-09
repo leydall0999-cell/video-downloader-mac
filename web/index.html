@@ -3493,6 +3493,14 @@
         </div>
       </div>
       <div id="comScriptSegments" class="com-script-segments" data-page-node-id="fsmcEMLoIoJpCRRpv0jITz"></div>
+      <!-- 2026-11-09 用户：「加个空白可挪动位置或者可自由输入时间的对话框，主要作用是
+           方便后期加入广告对白」。⇒ 审核列表底部常驻「＋ 插入广告口播」入口。
+           插入的卡片时间可自由填写（按原片时间），渲染时按该时间插入并用当前配音念出来，
+           不用重新生成脚本。⚠️ 别把这排按钮挪进滚动列表内部，否则永远滚不到。 -->
+      <div class="com-seg-addbar" data-page-node-id="comSegAddbar">
+        <button type="button" class="btn btn-sm btn-ghost com-seg-add" id="comSegAddAd" title="插入一段广告口播 / 补充对白：时间可自由填写，渲染时用当前配音念出来" data-page-node-id="comSegAddAdBtn">＋ 插入广告口播</button>
+        <span class="com-seg-addhint" data-page-node-id="comSegAddHint">时间按原片填写，可随时改；渲染时自动配音</span>
+      </div>
       <!-- 真实的 <audio> 元素：pywebview 的 WebKit 对离屏 new Audio()/blob URL 支持不佳，
            用 DOM 内元素 + data URL 播放更稳定。不能用 display:none，否则 WebKit 拒绝播放。 -->
       <audio id="comAudioPreview" preload="auto" playsinline style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" data-page-node-id="UH41NHZXq20fibfP1N2yel"></audio>
