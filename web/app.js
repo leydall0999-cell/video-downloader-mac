@@ -16662,15 +16662,7 @@ el.dwVidPlayer.hidden = true;
     if (info) info.textContent = comMusicCloudOffline
       ? '离线：显示上次缓存的曲库'
       : (comMusicCloudTracks.length ? ('共 ' + comMusicCloudTracks.length + ' 首') : '曲库还是空的');
-    if (!comMusicCloudTracks.length) {
-      const p = document.createElement('div');
-      p.className = 'com-tl-music-cloudhint';
-      p.textContent = comMusicCloudOffline
-        ? '还没缓存过曲库，联网后点「刷新」即可。'
-        : '后台还没上传曲子。管理员到「系统后台 → 背景音乐」上传后，点这里「刷新」即可。';
-      box.appendChild(p);
-      return;
-    }
+    if (!comMusicCloudTracks.length) return;
     comMusicCloudTracks.forEach((t) => {
       const row = document.createElement('div');
       row.className = 'com-tl-music-cloudrow';
@@ -16833,15 +16825,7 @@ el.dwVidPlayer.hidden = true;
       e.sort.classList.toggle('is-asc', !comMusicSortDesc);
     }
     comMusicCardHead();
-    if (!arr.length) {
-      const p = document.createElement('div');
-      p.className = 'com-music-empty';
-      p.textContent = comMusicCloudOffline
-        ? '还没缓存过曲库，联网后点「刷新曲库」即可。'
-        : '后台还没上传曲子。管理员到「系统后台 → 背景音乐」上传，再点「刷新曲库」。';
-      e.list.appendChild(p);
-      return;
-    }
+    if (!arr.length) return;
     arr.forEach((t) => {
       const row = document.createElement('div');
       const on = !!(comMusic.file && t.path && String(comMusic.file) === String(t.path));

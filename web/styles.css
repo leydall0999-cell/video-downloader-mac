@@ -7689,7 +7689,6 @@ html.theme-dark .uc-bulk { background: var(--bg-card, #23252c); border-color: va
 .com-tl-music-cloudname { flex: 1 1 auto; min-width: 0; color: #E5E7EB; font-size: .68rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .com-tl-music-cloudmeta { flex: none; color: #6B7280; font-size: .6rem; white-space: nowrap; }
 .com-tl-music-cloudrow .btn { flex: none; padding: .15rem .42rem; font-size: .62rem; }
-.com-tl-music-cloudhint { color: #6B7280; font-size: .62rem; padding: .3rem 0; line-height: 1.5; }
 
 
 /* 左栏「背景音乐」同级卡（2026-11-09 用户「放在左边」）：曲库列表 + 成片同款时间排序 + 点整行即选中 */
@@ -7719,7 +7718,6 @@ html.theme-dark .uc-bulk { background: var(--bg-card, #23252c); border-color: va
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .com-music-meta { flex: none; font-size: .62rem; color: var(--text-mute); white-space: nowrap; }
-.com-music-empty { font-size: .68rem; color: var(--text-mute); padding: .35rem .1rem; line-height: 1.5; }
 .com-music-hint { margin-top: .35rem; font-size: .66rem; color: var(--text-mute); line-height: 1.45; }
 .com-music-hint.is-err { color: #FCA5A5; }
 .com-music-hint.is-ok { color: #6EE7B7; }

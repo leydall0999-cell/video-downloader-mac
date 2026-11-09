@@ -277,13 +277,17 @@ def main():
     for cls in (".com-tl-music-cloudbar", ".com-tl-music-cloudrow", ".com-tl-music-cloud[hidden]"):
         ok("styles.css 含 " + cls, cls in css)
 
+    ok("空曲库不再渲染「后台还没上传曲子」提示（用户 2026-11-09 明确不要）",
+       "后台还没上传曲子" not in js)
+    ok("空态提示样式已清理", ".com-music-empty" not in css and ".com-tl-music-cloudhint" not in css)
+
     runner = (SERVER / "tests/run_offline_tests.sh").read_text(encoding="utf-8")
     ok("守卫已登记 runner", "run_one test_bgm_cloud.py" in runner)
 
     ver = (REPO / "VERSION").read_text(encoding="utf-8").strip()
-    ok("VERSION 已升到 1.1.15", ver == "1.1.15", f"got={ver}")
+    ok("VERSION 已升到 1.1.16", ver == "1.1.16", f"got={ver}")
     ok("changelog 含本版条目且说明留白",
-       '"version": "1.1.15",\n        "date": "2026-11-09",\n        "items": [],' in changelog)
+       '"version": "1.1.16",\n        "date": "2026-11-09",\n        "items": [],' in changelog)
 
     print(f"\n=== test_bgm_cloud.py: {PASS} 通过 / {FAIL} 失败 ===")
     return 1 if FAIL else 0
