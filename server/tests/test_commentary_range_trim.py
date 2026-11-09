@@ -156,7 +156,11 @@ def test_range_offset_surfaces_in_script_api():
     with open(os.path.join(root, "web", "app.js"), encoding="utf-8") as f:
         js = f.read()
     assert "seg.start + _rangeStart" in js, "审核面板必须把片段内时间换算成原片位置"
-    assert "com-script-range" in js, "缺少「本片只处理原片 X–Y」说明条"
+    assert "currentScriptRangeStart" in js, \
+        "时间轴按原片坐标绘制，必须有当前脚本的原片起点"
+    assert "comTlRenderSegs(comTlLaneNarr, segs, hasDur ? dur : 0, currentScriptRangeStart)" in js, \
+        "旁白/字幕轨必须传原片起点偏移（否则选 10–15 分钟的段落全挤在时间轴最左边）"
+    assert "com-script-range" in js, "缺少「原片 X–Y · 时间按原片计」说明条"
     with open(os.path.join(root, "web", "styles.css"), encoding="utf-8") as f:
         css = f.read()
     assert ".com-script-range" in css, "说明条样式缺失"

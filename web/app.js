@@ -12150,6 +12150,7 @@ el.dwVidPlayer.hidden = true;
         _segTipHost.insertBefore(_tip, el.comScriptSegments);
       }
       currentScriptSegments = segs;  // 保留原始时间戳+note，供 saveScript 合并
+      currentScriptRangeStart = _rangeStart;  // 时间轴按原片坐标画（成片段落要整体右移这段）
       currentScriptBudgets = data.budgets || [];  // 每段的字数预算（语速常量由后端统一给出）
       comTlSync();  // 三轨时间轴：脚本就绪即把「旁白 / 字幕」两轨按 start/end 画出来
       segs.forEach((seg, idx) => {
@@ -12675,6 +12676,10 @@ el.dwVidPlayer.hidden = true;
   let commentaryEnvReady = false;
   let currentScriptJobId = null;  // 当前脚本审核任务的 job_id
   let currentScriptSegments = null;  // 原始脚本 segments（保留 start/end/note 供 save 合并）
+  // 🔴 2026-11-09：这份脚本在原片里的起点秒。裁剪过的片子 segments 是「片段内 0 起」，
+  // 而时间轴画的是**原片**坐标（总长=原片时长、正剧把手=原片秒），不补这个偏移，
+  // 旁白/字幕块会全挤在最左边（选了 10–15 分钟却画在 0~5 分钟处）——用户说「对不清时间」就是这个。
+  let currentScriptRangeStart = 0;
   let currentScriptBudgets = null;  // 每段「按可用时长估算能装多少字」，由后端返回（0=不校验）
 
   /** edge-tts 中文 Neural 音色可选列表。
@@ -17066,13 +17071,16 @@ el.dwVidPlayer.hidden = true;
     comTlScale.replaceChildren(...parts);
   };
   /** 把一组 {start,end}(秒) 画到某条轨道上。 */
-  const comTlRenderSegs = (lane, segs, dur) => {
+  const comTlRenderSegs = (lane, segs, dur, offSec) => {
     if (!lane) return;
     if (!dur || !Array.isArray(segs) || !segs.length) { lane.replaceChildren(); return; }
+    const off = Number(offSec) || 0;   // 原片起点偏移（未裁剪/整片时为 0）
     const parts = [];
     segs.forEach((sg, idx) => {
-      const a = Math.max(0, Math.min(dur, Number(sg.start) || 0));
-      const b = Math.max(a, Math.min(dur, Number(sg.end) || a));
+      const a0 = Math.max(0, Number(sg.start) || 0);
+      const b0 = Math.max(a0, Number(sg.end) || a0);
+      const a = Math.max(0, Math.min(dur, a0 + off));
+      const b = Math.max(a, Math.min(dur, b0 + off));
       if (b - a < 0.05) return;
       const d = document.createElement('div');
       d.className = 'com-tl-clip com-tl-seg';
@@ -17147,8 +17155,8 @@ el.dwVidPlayer.hidden = true;
       comTlCut.textContent = n ? `剪掉 ${n} 段` : '';
     }
     const segs = Array.isArray(currentScriptSegments) ? currentScriptSegments : [];
-    comTlRenderSegs(comTlLaneNarr, segs, hasDur ? dur : 0);
-    comTlRenderSegs(comTlLaneSubs, segs, hasDur ? dur : 0);
+    comTlRenderSegs(comTlLaneNarr, segs, hasDur ? dur : 0, currentScriptRangeStart);
+    comTlRenderSegs(comTlLaneSubs, segs, hasDur ? dur : 0, currentScriptRangeStart);
     comTlRenderScale(hasDur ? dur : 0);
     comTlPlaceHandles();
     comTlSyncPlayhead();
