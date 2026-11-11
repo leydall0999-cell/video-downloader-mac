@@ -16292,6 +16292,8 @@ el.dwVidPlayer.hidden = true;
         el.comTypePanel.querySelectorAll('.com-mode-dropdown-option').forEach((b2) => {
           b2.classList.toggle('is-selected', b2 === btn);
         });
+        // 解说类型 → 依赖它的下拉（自动挑高光）的可用性跟着变
+        applyComSelectEnabled();
         closeTypeDropdown();
       });
     });
@@ -16367,6 +16369,40 @@ el.dwVidPlayer.hidden = true;
         ['short_drama', '短剧解说'], ['movie', '影视深度'],
       ],
     },
+  };
+
+  // ---- 互斥联动：某些下拉在当前「解说类型」下根本不参与任何计算 ⇒ 置灰不可选 ----
+  // 依据（2026-11-11 核对 llm_script.py 的 family/src 分支）：只有 deep_hl / normal_hl
+  // 会读取 highlight_source；full_normal / full_deep 走完整转写稿，「挑高光」留着也不影响结果。
+  // 因此这里只做「视觉灰化 + 不可操作」，**不改写用户原有选择**，切回高光模式即自动恢复。
+  const COM_SELECT_DISABLE_RULES = {
+    comHlSource: {
+      reason: '全片模式下不参与计算（只有高光模式才需要挑高光）',
+      isDisabled: () => {
+        const r = document.querySelector('input[name="comType"]:checked');
+        const v = r ? r.getAttribute('value') : '';
+        return v === 'full_normal' || v === 'full_deep';
+      },
+    },
+    // 2026-11-11：重构叙事模板下「开头加高光」是死开关——后端 edit_ffmpeg.py:3903
+    // 会强制置 False（片头整段原片与「原片只取短论据」的重构逻辑冲突，且会被 narrative_mode 静默丢弃）。
+    // 因此沿用 comHlSource 同款「灰化 + 不可操作、不改写原值、切回模板即恢复」的约定，避免用户白勾。
+    comIntroHighlight: {
+      reason: '重构叙事模板下不参与计算（片头整段原片与重构逻辑冲突，后端会强制关闭）',
+      isDisabled: () => {
+        const r = document.querySelector('input[name="comTemplate"]:checked');
+        const v = r ? r.getAttribute('value') : 'standard';
+        return v === 'reconstruct';
+      },
+    },
+  };
+  const comSelectControls = new Map();   // key -> { setDisabled(flag, reason) }
+  const applyComSelectEnabled = () => {
+    Object.keys(COM_SELECT_DISABLE_RULES).forEach((key) => {
+      const rule = COM_SELECT_DISABLE_RULES[key];
+      const ctl = comSelectControls.get(key);
+      if (ctl) ctl.setDisabled(rule.isDisabled(), rule.reason);
+    });
   };
 
   /** 读取原生控件当前值：radio 取 checked 的 value，checkbox 返回 on/off。 */
@@ -16447,6 +16483,27 @@ el.dwVidPlayer.hidden = true;
     title.insertAdjacentElement('afterend', wrap);
 
     let dirty = false;
+    // 禁用态：当前「解说类型」下这一项不参与计算时，整格灰化 + 不可点开（值原样保留）。
+    let disabled = false;
+    const setDisabled = (flag, reason) => {
+      const next = !!flag;
+      if (next === disabled) {
+        if (next) btn.title = reason || '当前设置下不参与计算';
+        return;
+      }
+      disabled = next;
+      wrap.classList.toggle('is-disabled', disabled);
+      btn.disabled = disabled;
+      btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+      btn.title = disabled ? (reason || '当前设置下不参与计算') : '';
+      // 原生控件一起禁用：防键盘/辅助工具改值，也让「灰掉」名副其实
+      block.querySelectorAll('input').forEach((n) => { n.disabled = disabled; });
+      if (disabled && !panel.hidden) close();
+      // 禁用时回显栏位名（不显示那个已不生效的值，免得误以为「人工挑选」在起作用）；
+      // 恢复可用后再按 dirty 还原真实回显。
+      if (disabled) label.textContent = def.title || label.textContent;
+      else syncUI();
+    };
     const defaultVal = def.kind === 'checkbox' ? 'off' : (def.options[0] || [''])[0];
     // ---- 展开定位（2026-09-21 修复"风格选择不了 / 拉不下去"）----
     // 面板原本常驻在 trigger 旁边（absolute），被两层东西挡住：
@@ -16528,17 +16585,23 @@ el.dwVidPlayer.hidden = true;
       syncUI();
     };
     comSelectResetters.push(reset);
+    comSelectControls.set(key, { setDisabled });
 
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (disabled) return;
       if (panel.hidden) openPanel();
       else close();
     });
     panel.querySelectorAll('.com-mode-dropdown-option').forEach((b) => {
       b.addEventListener('click', () => {
+        if (disabled) return;
         dirty = true;
         comSelectWrite(def, key, b.getAttribute('data-value'));
         syncUI();
+        // 任一通用下拉改动后，重算所有「条件禁用」项的可用性
+        // （例如切到重构模板 ⇒ 开头加高光灰化；切回现有解说 ⇒ 恢复）。
+        applyComSelectEnabled();
         close();
       });
     });
@@ -16571,6 +16634,8 @@ el.dwVidPlayer.hidden = true;
   };
 
   document.querySelectorAll('[data-com-select]').forEach(initComSelect);
+  // 初始化后按当前「解说类型」把不该参与的下拉灰掉
+  applyComSelectEnabled();
 
   // 正剧范围控件（2026-09-17 恢复滑块）：起点/终点滑块直接驱动「正剧开始/片尾开始」
   // 绝对时间输入，双向同步；trim_start/trim_end 恒为整片。

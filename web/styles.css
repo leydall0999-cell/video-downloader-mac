@@ -3292,6 +3292,20 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
 }
 .com-mode-dropdown-option:hover { background: var(--brand-soft, #eef2ff); }
 .com-mode-dropdown-option.is-selected { background: color-mix(in srgb, var(--brand) 12%, #fff); color: var(--brand-strong); font-weight: 600; }
+/* 禁用态（2026-11-11）：当前「解说类型」下这一项不参与计算 ⇒ 整格灰化、不可点开。
+   JS 只加 .is-disabled + button[disabled]，不改写原有选择；切回高光模式即恢复。 */
+.com-mode-dropdown.is-disabled { opacity: .45; }
+.com-mode-dropdown.is-disabled .com-mode-dropdown-toggle,
+.com-mode-dropdown.is-disabled .com-mode-dropdown-toggle:disabled {
+  /* 写死色值：--surface-2 在深色作用域里解析不稳定（浅色值会漏进深色面板） */
+  background: #F0F2F6;
+  border-color: #E4E8EF;
+  color: #9AA3B2;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.com-mode-dropdown.is-disabled .com-mode-dropdown-toggle:hover { border-color: var(--line); }
+.com-mode-dropdown.is-disabled .com-mode-dropdown-caret { opacity: .4; }
 
 /* ④ 固定选择项：双 checkbox 半行 + 保留时长整行 */
 .com-opt-row-fixed {
@@ -6965,6 +6979,11 @@ html.theme-dark .com-mode-dropdown-panel.is-portal .com-mode-dropdown-option:hov
 html.theme-dark #commentaryView .com-mode-dropdown-option.is-selected,
 html.theme-dark .com-mode-dropdown-panel.is-portal .com-mode-dropdown-option.is-selected {
   background: color-mix(in srgb, var(--brand) 30%, #1D1F24); color: #C7D2FE;
+}
+/* 禁用态（深色）：压暗到面板同层级，只靠低对比文字表达「不可用」 */
+html.theme-dark #commentaryView .com-mode-dropdown.is-disabled .com-mode-dropdown-toggle,
+html.theme-dark #commentaryView .com-mode-dropdown.is-disabled .com-mode-dropdown-toggle:disabled {
+  background: #1E2026; color: #6B7280; border-color: #2C2F37; box-shadow: none;
 }
 /* 默认（无变体）按钮与次要按钮深色化 */
 html.theme-dark #commentaryView .btn:not(.btn-primary):not(.btn-danger):not(.com-generate-main):not(.com-insp-done) {
