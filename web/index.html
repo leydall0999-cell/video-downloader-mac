@@ -3064,6 +3064,18 @@
           <span class="com-fold-hint">类型 / 高光 / 画幅 / 片头片尾 / 引擎</span>
         </summary>
         <div class="com-opts" id="comOpts" data-page-node-id="ZRiiH42GFUywZFNYdV5GXS">
+      <!-- ===== 剪辑模板（2026-11-11）：两个模板二选一，默认现有解说 =====
+           用通用 data-com-select 下拉机制（原生 radio 保留在 DOM，仅隐藏），
+           comGetOptions() 读 input[name="comTemplate"]:checked 收集值。 -->
+      <div class="com-row com-row-template" id="comTemplateRow">
+        <div class="com-cell com-cell-trigger com-cell-template" data-com-select="comTemplate">
+          <div class="com-opt-title">🎞 剪辑模板</div>
+          <div class="com-opt-row com-opt-row-fixed">
+            <label class="com-mode-option com-mode-fixed" title="现有形态：原片按时间轴连续铺满，配上你的解说旁白"><input type="radio" name="comTemplate" value="standard" checked /><span><b>现有解说</b>（原片配旁白）</span></label>
+            <label class="com-mode-option com-mode-fixed" title="重构叙事：原片拆成短论据片段，中间用原创信息卡隔断，可重排剧情顺序"><input type="radio" name="comTemplate" value="reconstruct" /><span><b>重构叙事二创</b>（原创信息卡隔断＋剧情重排）</span></label>
+          </div>
+        </div>
+      </div>
       <!-- ===== 第 1 行：5 个下拉 trigger 横排 ===== -->
       <div class="com-row com-row-1" data-page-node-id="VawhqAxHpo1erBvfgcHNVF">
         <!-- 解说类型（自定义下拉） -->

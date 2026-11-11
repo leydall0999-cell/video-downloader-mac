@@ -1737,7 +1737,7 @@ def _commentary_eta(job: dict, line: str, src_dur: float) -> None:
         job["eta_remaining"] = rem
         job["eta_done_at"] = int(now + rem)
 
-def _commentary_option_args(*, commentary_type: str = "deep_hl", highlight_source: str = "ai",
+def _commentary_option_args(*, template: str = "standard", commentary_type: str = "deep_hl", highlight_source: str = "ai",
                              intro_highlight: bool = False, skip_intro_outro: bool = False,
                              no_narrate_intro_outro: bool = True, retain_pct: float | None = None,
                              web: bool = False, one_click: bool = False, mode: str | None = None,
@@ -1755,6 +1755,9 @@ def _commentary_option_args(*, commentary_type: str = "deep_hl", highlight_sourc
     （k = vdur/win）把窗口撑开，用于避免原速模式下旁白被 -t 静默截断。
     """
     args = ["--commentary-type", commentary_type, "--highlight-source", highlight_source]
+    # 剪辑模板：仅非默认才追加，保证老调用方（不传 template）产出的命令行与改动前逐字节一致
+    if template and template not in ("standard", "none", ""):
+        args += ["--template", template]
     if not original_speed:
         args.append("--no-original-speed")
     if style and style != "none":
@@ -1966,7 +1969,7 @@ def _commentary_charge_on_success(job_id: str) -> None:
         logger.exception("解说产出后扣费异常（不影响成片交付）job=%s", job_id)
 
 
-def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit_only: str | None = None, script_only: bool = False, trim_start: float = 0.0, trim_end: float = 0.0, mode: str | None = None, commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, title: str = "", style: str = "none", style_intensity: int = 65, src_filename: str = "", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", bgm: str = "off", bgm_file: str = "", bgm_volume: float = 0.18, subtitle_size: float = 1.0, subtitle_color: str = "FFFFFF", subtitle_border: float = 1.0, subtitle_border_color: str = "000000", subtitle_pos: str = "bottom", max_chars: int = 0, original_speed: bool = True, feather_opt: str = "") -> None:
+def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit_only: str | None = None, script_only: bool = False, trim_start: float = 0.0, trim_end: float = 0.0, mode: str | None = None, template: str = "standard", commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, title: str = "", style: str = "none", style_intensity: int = 65, src_filename: str = "", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", bgm: str = "off", bgm_file: str = "", bgm_volume: float = 0.18, subtitle_size: float = 1.0, subtitle_color: str = "FFFFFF", subtitle_border: float = 1.0, subtitle_border_color: str = "000000", subtitle_pos: str = "bottom", max_chars: int = 0, original_speed: bool = True, feather_opt: str = "") -> None:
     """后台线程：把下载好的视频喂给 commentary-pipeline，等成片回传。
 
     复用用户现成的 process.py 整条管线（whisper 转写 → edge-tts 配音 → ffmpeg 出片），
@@ -2088,7 +2091,8 @@ def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit
         # bundled 模式：用主程序自身(sys.executable)以 --vdl-commentary-worker 重入为 worker，
         # 依赖随包内置(已砍 torch)，无需外部 Python / pip，契合自包含铁律。
         _bundled = _commentary_is_bundled()
-        extra = _commentary_option_args(commentary_type=commentary_type,
+        extra = _commentary_option_args(template=template,
+                                        commentary_type=commentary_type,
                                         highlight_source=highlight_source,
                                         intro_highlight=intro_highlight,
                                         skip_intro_outro=skip_intro_outro,
@@ -2431,6 +2435,7 @@ def _commentary_run_http(job_id: str, src_path: str, vertical: bool, voice: str,
             data = {
                 "vertical": "true" if vertical else "false",
                 "voice": voice,
+                "template": template or "standard",
                 "commentary_type": commentary_type,
                 "highlight_source": highlight_source,
                 "intro_highlight": "true" if intro_highlight else "false",
@@ -3091,6 +3096,9 @@ class CommentaryRequest(BaseModel):
     trim_start: float = Field(default=0.0, ge=0.0)
     trim_end: float = Field(default=0.0, ge=0.0)
     # 剪辑选项（与 commentary-pipeline 的 commentary_options 模型一致）
+    # 剪辑模板二选一（2026-11-11）：standard=现有原片配旁白；reconstruct=重构叙事二创。
+    # 默认 standard，老前端/老脚本不带该字段时行为逐字节不变。
+    template: str = Field(default="standard", description="剪辑模板: standard=现有解说(原片配旁白); reconstruct=重构叙事二创(原创信息卡隔断+剧情重排)")
     commentary_type: str = Field(default="deep_hl",
                                  description="解说类型: deep_hl=高光处叠加深度解说; normal_hl=高光部分普通解说; "
                                              "full_normal=全片普通解说; full_deep=全片深入解说")

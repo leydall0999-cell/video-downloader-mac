@@ -11496,7 +11496,11 @@ el.dwVidPlayer.hidden = true;
     const dramaStart = comDramaSec(el.comDramaStart);
     const dramaEnd = comDramaSec(el.comDramaEnd);
     const no_narrate_intro_outro = true; // 两个模式都不解说片头片尾（skip 模式已剪掉）
+    const tplEl = document.querySelector('input[name="comTemplate"]:checked');
     return {
+      // 剪辑模板二选一（2026-11-11）：standard=现有原片配旁白，reconstruct=重构叙事二创。
+      // 默认 standard，旧前端/老脚本不含该字段时服务端同样按 standard 处理，行为零变化。
+      template: tplEl ? tplEl.value : 'standard',
       commentary_type: typeEl ? typeEl.value : 'deep_hl',
       highlight_source: srcEl ? srcEl.value : 'ai',
       intro_highlight: !!(el.comIntroHighlight && el.comIntroHighlight.checked),
@@ -12696,6 +12700,8 @@ el.dwVidPlayer.hidden = true;
       const exportJy = comGetExportJianying();
       if (exportJy) form.append('export_jianying', exportJy);
       const _opts = comGetOptions();
+      // 渲染阶段服务端不接受整个 options 对象，模板要随 FormData 单独带下去。
+      form.append('template', _opts.template || 'standard');
       if (_opts.bgm && _opts.bgm !== 'off') form.append('bgm', _opts.bgm);
       if (_opts.bgm === 'user' && _opts.bgm_file) form.append('bgm_file', _opts.bgm_file);
       form.append('bgm_volume', String(_opts.bgm_volume));
@@ -16325,6 +16331,13 @@ el.dwVidPlayer.hidden = true;
   // ---- 通用下拉：把标记了 data-com-select 的单选组/开关统一转成下拉 ----
   // 原生 radio/checkbox 保留在 DOM（仅隐藏），comGetOptions 与既有 change 监听照常生效。
   const COM_SELECT_DEFS = {
+    comTemplate: {
+      kind: 'radio',
+      title: '剪辑模板',
+      hide: '.com-opt-row-fixed',
+      options: [['standard', '现有解说（原片配旁白）'],
+                ['reconstruct', '重构叙事二创（原创信息卡隔断＋剧情重排）']],
+    },
     comHlSource: {
       kind: 'radio',
       title: '自动挑高光',

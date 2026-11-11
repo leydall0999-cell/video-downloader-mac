@@ -1061,6 +1061,7 @@ def create_script_only(payload: app.CommentaryRequest, request: app.Request) -> 
                                    "billing": (_pre or {}).get("billing") or {}}
     app.executor.submit(app._commentary_run, job_id, src_path, payload.vertical, payload.voice or app.COMMENTARY_VOICE,
                     script_only=True, trim_start=payload.trim_start, trim_end=payload.trim_end,
+                    template=getattr(payload, "template", "standard") or "standard",
                     mode=payload.mode, commentary_type=payload.commentary_type,
                     highlight_source=payload.highlight_source,
                     intro_highlight=payload.intro_highlight,
@@ -1262,6 +1263,7 @@ def render_script(job_id: str, vertical: bool = app.Form(False), voice: str = ap
                  subtitle_pos: str = app.Form("bottom"),
                  max_chars: int = app.Form(0),
                  feather_opt: str = app.Form(""),
+                 template: str = app.Form("standard"),
                  tts_provider: str = app.Form("")) -> dict:
     """用已审核的脚本渲染成片（process.py --edit-only）。
 
@@ -1316,6 +1318,10 @@ def render_script(job_id: str, vertical: bool = app.Form(False), voice: str = ap
     use_original_speed, over_limit = _plan_original_speed(seg_data.get("segments") or [])
     auto_adjusted = False
 
+    # 剪辑模板：优先用前端渲染请求带的 Form 值；老前端没带时回落到 script.json
+    # 里保存的 options.template（生成脚本时写入），最后才默认 standard。
+    if not template or template == "standard":
+        template = saved.get("template") or "standard"
     commentary_type = saved.get("commentary_type", "deep_hl")
     highlight_source = saved.get("highlight_source", "ai")
     intro_highlight = bool(saved.get("intro_highlight", False))
@@ -1356,6 +1362,7 @@ def render_script(job_id: str, vertical: bool = app.Form(False), voice: str = ap
     v = voice or job.get("voice", "") or app.COMMENTARY_VOICE
     app.executor.submit(app._commentary_run, render_job_id, src_path, vertical, v, edit_only=script_path,
                     trim_start=trim_start, trim_end=trim_end,
+                    template=template,
                     commentary_type=commentary_type, highlight_source=highlight_source,
                     intro_highlight=intro_highlight, skip_intro_outro=skip_intro_outro,
                     no_narrate_intro_outro=no_narrate_intro_outro,

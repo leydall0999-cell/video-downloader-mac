@@ -3896,6 +3896,21 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
 .com-row-2 > .com-cell-r2-vision { flex: 0 0 auto; }
 .com-row-2 > .com-cell-r2-tts { flex: 1 1 200px; min-width: 0; }
 .com-row-2 > .com-cell-r2-asr { flex: 1 1 320px; min-width: 0; }
+/* 剪辑模板行（2026-11-11）：放在解说参数卡最上方，两个模板各占一整行，
+   文案较长（重构叙事带括注），竖直堆叠比横排两列更易读；样式复用第 3 行的固定选项。 */
+.com-row-template { display: flex; flex-wrap: wrap; gap: .5rem .7rem; align-items: flex-start; margin-bottom: .55rem; }
+.com-row-template > .com-cell-template { flex: 1 1 100%; min-width: 0; }
+.com-row-template > .com-cell-template > .com-opt-title { font-size: .8rem; font-weight: 600; margin: 0 0 .45rem; }
+.com-row-template .com-opt-row-fixed { flex-direction: column; gap: .4rem; }
+.com-row-template .com-opt-row-fixed > .com-mode-fixed {
+  flex: 0 0 auto; border-radius: 8px; padding: .38rem .5rem;
+  align-items: flex-start; font-size: .74rem; line-height: 1.45;
+}
+.com-row-template .com-opt-row-fixed > .com-mode-fixed > input { margin-top: .15rem; }
+.com-row-template .com-opt-row-fixed > .com-mode-fixed:has(input:checked) {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 7%, var(--surface));
+}
 /* 第 3 行：片头片尾处理（2026-09-17 晚自左栏「固定选择项」卡搬入，归入「解说参数」这一类）
    ⚠️ 复用既有的 .com-opt-row-fixed / .com-mode-fixed（样式在 2855 一带），
       只把方向从横排改竖排：右栏可用宽仅 240px，两个选项各占半行会被长文案压成两行碎片。 */
