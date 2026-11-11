@@ -16268,16 +16268,11 @@ el.dwVidPlayer.hidden = true;
       const opt = el.comTypePanel.querySelector(`.com-mode-dropdown-option[data-value="${val}"]`);
       if (opt && el.comTypeBtnLabel) el.comTypeBtnLabel.textContent = opt.textContent.trim() || comTypeTitle;
     };
+    // 2026-11-11：成片完成后**不再把用户选择打回默认值**。
+    // 旧实现把 radio 重置成 deep_hl，并把 label 清回「解说类型」标题 ——
+    // 用户下次提交时静默变成高光模式（实测：明明选了「全片深入解说」，出来只有 6 分钟）。
+    // 现在只同步显示，保留 checked，各下拉互不牵连。
     const resetComType = () => {
-      comTypeDirty = false;
-      const radio = document.querySelector(`input[name="comType"][value="${comTypeDefault}"]`);
-      if (radio) radio.checked = true;
-      const opt = el.comTypePanel.querySelector(`.com-mode-dropdown-option[data-value="${comTypeDefault}"]`);
-      if (opt) {
-        el.comTypePanel.querySelectorAll('.com-mode-dropdown-option').forEach((b2) => {
-          b2.classList.toggle('is-selected', b2 === opt);
-        });
-      }
       syncTypeLabel();
     };
     comSelectResetters.push(resetComType);
@@ -16527,9 +16522,9 @@ el.dwVidPlayer.hidden = true;
         b.classList.toggle('is-selected', b.getAttribute('data-value') === cur);
       });
     };
+    // 同上（2026-11-11）：成片完成后保留用户选择，不再写回默认值，
+    // 否则「剪辑模板 / 自动挑高光 / 风格」会被一起打回默认，看起来像互相牵连。
     const reset = () => {
-      dirty = false;
-      comSelectWrite(def, key, defaultVal);
       syncUI();
     };
     comSelectResetters.push(reset);
