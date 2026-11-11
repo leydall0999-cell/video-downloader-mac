@@ -1988,6 +1988,7 @@ def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit
         #    模式，不走这里；将来要让 HTTP 模式也享受同一优化，需在远端 worker 侧支持
         #    「只处理 [start, end]」的入参。
         return _commentary_run_http(job_id, src_path, vertical, voice, mode,
+                                    template=template,
                                     commentary_type=commentary_type,
                                     highlight_source=highlight_source,
                                     intro_highlight=intro_highlight,
@@ -2390,7 +2391,7 @@ def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit
             commentary_jobs[job_id]["error"] = str(exc)[:800]
         logger.exception("解说任务 %s 失败", job_id)
 
-def _commentary_run_http(job_id: str, src_path: str, vertical: bool, voice: str, mode: str | None = None, commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, style: str = "none", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", style_intensity: int = 65) -> None:
+def _commentary_run_http(job_id: str, src_path: str, vertical: bool, voice: str, mode: str | None = None, template: str = "standard", commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, style: str = "none", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", style_intensity: int = 65) -> None:
     """HTTP 模式：把已下载视频 POST 给独立解说 worker，轮询取回成片到主站本地。"""
     endpoint = COMMENTARY_ENDPOINT
     headers = {"X-Worker-Token": COMMENTARY_TOKEN} if COMMENTARY_TOKEN else {}
