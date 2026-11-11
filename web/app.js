@@ -14035,6 +14035,9 @@ el.dwVidPlayer.hidden = true;
 
   // 生成/重新生成脚本的统一入口：底部主按钮与审核区「↻ 重新生成脚本」共用同一逻辑。
   const comStartScriptGeneration = async () => {
+    // 兜底：充值 / 订阅后前端可能停留在旧的预检禁用态（按钮灰着），生成前先用最新额度
+    // 重跑一次预检，避免「有积分却因界面没刷新而被卡住」（与 vdl:balance-changed 同源）。
+    await comRefreshPrecheckAsync();
     // 兜底：预检未通过时按钮通常已被禁用，这里再挡一次，避免任何路径绕过前置判定
     if (comPrecheckBlocked) return;
     if (!commentaryEnvReady) {
@@ -16198,6 +16201,19 @@ el.dwVidPlayer.hidden = true;
     if (el.comGenerateScript) el.comGenerateScript.disabled = false;
     if (el.comStatus) el.comStatus.style.color = '';
   };
+  // 🔴 2026-11-11 修复「充值/订阅后解说仍显示『免费额度已用完』且按钮禁用」：
+  //   预检只会在「选文件 / 改范围 / 切档位」时重跑，充值完成后界面停在旧的禁用态，
+  //   导致用户明明充了积分却点不动生成。这里提供「用最新额度重跑一次预检」的入口，
+  //   由支付成功回调（跨 IIFE）通过自定义事件触发，并在「点击生成」时兜底再跑一次。
+  const comRefreshPrecheckAsync = async () => {
+    if (selectedLocalFile) {
+      const sec = await comProbeLocalDuration(selectedLocalFile);
+      await comRunPrecheck({ durationSec: sec });
+    } else if (el.comSource && el.comSource.value) {
+      await comRunPrecheck({ fileId: el.comSource.value });
+    }
+  };
+  window.addEventListener('vdl:balance-changed', () => { comRefreshPrecheckAsync(); });
   // 🔴 2026-10-26 计费预估一致性：正剧范围（起点/终点，含滑块拖动与自动检测回填）
   //    任何变化都重跑预检 —— 否则预估停留在选片时的整片口径（2:28 电影显示
   //    「5 个半小时/250 积分」，实际只按 9.8 分钟收 1 档），用户被预估吓到。
@@ -19989,6 +20005,9 @@ el.dwVidPlayer.hidden = true;
           showToast('会员开通成功');
           await renderMemberStatus();
           await renderCloudAccount();
+          // 🔴 2026-11-11：余额（会员 / AI 积分）变了，通知解说预检用最新额度重跑，
+          //   否则用户充完积分回来，解说界面仍停在「免费额度已用完」的旧禁用态。
+          window.dispatchEvent(new CustomEvent('vdl:balance-changed'));
           setTimeout(() => closePayModal(true), 1200);
         } else if (q && q.ok && (q.status === 'LIMIT_REJECTED'
                                  || q.status === 'GRANT_FAILED')) {
