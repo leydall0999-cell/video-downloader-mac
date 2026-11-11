@@ -182,17 +182,33 @@ def precheck_or_raise(
     # / DAILY_QUOTA_LIMITS），门禁顺序与字幕提取同构：先日配额 → 再 AI 积分 → 最后落账。
     _mstore = app_module().current_member_store(request)
     _dq = _mstore.quota_state("cloud_commentary")
+    _billing = commentary_billing(request, res.get("engine") or engine, duration_sec, vision)
     if not _dq.get("allowed"):
+        # 🔴 2026-11-11 实测修复：日免费次数只该约束「免费额度」，不能把**已经持有
+        #    AI 积分**的用户挡死。事故场景：后台把 cloud_commentary 免费额度配成
+        #    0 次/日（plans.json free_quota.daily_free_limits）⇒ 用户账户里躺着 220
+        #    积分、预检也算出 credit_cost=50，却仍被 402「今日视频解说免费额度
+        #    已用尽（0/日）」永久拦住 —— 付费资源被免费次数这一层拦成死路，
+        #    连一次都没跑过（used=0），积分根本走不到扣费那一步。
+        #    正解：免费次数不满足时，只要积分够付本次账单就放行（等价于「没有免费
+        #    次数，按积分付费」）；积分也不够才按原文案 402。
         from fastapi import HTTPException
-        _limit = int(_dq.get("limit", 0))
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "message": f"今日视频解说免费额度已用尽（{_limit}/日）",
-                "hint": "开通会员可解锁无限次/日，并享满速生成",
-                "category": "quota", "code": "MEMBER_QUOTA", "subscribe": True,
-            },
-        )
+        _paid_ok = False
+        try:
+            _assert_commentary_affordable(request, _billing, _mstore)
+            _paid_ok = True
+        except HTTPException:
+            _paid_ok = False
+        if not _paid_ok:
+            _limit = int(_dq.get("limit", 0))
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "message": f"今日视频解说免费额度已用尽（{_limit}/日）",
+                    "hint": "开通会员可解锁无限次/日，并享满速生成",
+                    "category": "quota", "code": "MEMBER_QUOTA", "subscribe": True,
+                },
+            )
     # 🔴 2026-10-23「失败不扣积分」：**真扣费从「任务前」挪到「产出成功后」**。
     # 事故背景：百度网盘接入期间转写因 av 19 与 faster-whisper 1.2.1 不兼容，
     # 1 秒内崩溃（解说管线退出 1），但积分已在预检这里扣掉、失败路径**没有任何退款**
@@ -200,7 +216,7 @@ def precheck_or_raise(
     # 现在预检只做**只读**余额校验（余额不足仍在开跑前 402，不让用户白等十几分钟），
     # 真正落账由 app.py `_commentary_run_http` 的两个成功分支调
     # `charge_commentary_on_success()` 执行 —— 没产出就不扣。
-    billing = commentary_billing(request, res.get("engine") or engine, duration_sec, vision)
+    billing = _billing
     _assert_commentary_affordable(request, billing, _mstore)
     res["billing"] = billing
     return res
