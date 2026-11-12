@@ -590,6 +590,7 @@ def create_script_only_upload(
     correct_transcript: str = app.Form(""),
     title: str = app.Form(""),
     export_jianying: str = app.Form(""),
+    crop_ratio: str = app.Form(""),
     request: app.Request = None,
 ) -> dict:
     """上传本地视频 → 只生成脚本不渲染成片。
@@ -1260,6 +1261,7 @@ def _restore_abs_drama(trim_start: float,
 
 @router.post("/api/commentary/render/{job_id}")
 def render_script(job_id: str, vertical: bool = app.Form(False), voice: str = app.Form(""),
+                 crop_ratio: str = app.Form(""),
                  export_jianying: str = app.Form(""),
                  bgm: str = app.Form("off"), bgm_file: str = app.Form(""),
                  bgm_volume: float = app.Form(0.18),
@@ -1388,6 +1390,7 @@ def render_script(job_id: str, vertical: bool = app.Form(False), voice: str = ap
                     feather_opt=feather_opt,
                     export_jianying=export_jianying,
                     tts_provider=tts_provider,
+                    crop_ratio=crop_ratio,
                     original_speed=use_original_speed)
     return {"job_id": render_job_id, "status": "running", "script_job": job_id,
             "over_limit": over_limit, "auto_adjusted": auto_adjusted}
