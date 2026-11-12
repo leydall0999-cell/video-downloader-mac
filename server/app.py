@@ -1748,7 +1748,8 @@ def _commentary_option_args(*, template: str = "standard", commentary_type: str 
                              subtitle_size: float = 1.0, subtitle_color: str = "FFFFFF",
                              subtitle_border: float = 1.0, subtitle_border_color: str = "000000",
                              subtitle_pos: str = "bottom",
-                             max_chars: int = 0, original_speed: bool = True) -> list:
+                             max_chars: int = 0, original_speed: bool = True,
+                             crop_ratio: str = "") -> list:
     """把剪辑选项翻译成 process.py 的命令行参数（local / bundled 模式共用）。
 
     original_speed=False → 带 `--no-original-speed`：渲染层改为按旁白时长放慢画面
@@ -1809,6 +1810,10 @@ def _commentary_option_args(*, template: str = "standard", commentary_type: str 
         args += ["--subtitle-pos", subtitle_pos]
     if max_chars and max_chars > 0:
         args += ["--max-chars", str(max_chars)]
+    # 画幅比例预设（2026-11-11）：auto 不追加（交给 process.py 按 vertical 旧语义回落），
+    # 其余四项显式下发 --crop-ratio，后端 edit_ffmpeg 按此做居中 cover-crop。
+    if crop_ratio and crop_ratio != "auto":
+        args += ["--crop-ratio", crop_ratio]
     return args
 
 def _parse_feather_opt(raw: str) -> dict:
@@ -1969,7 +1974,7 @@ def _commentary_charge_on_success(job_id: str) -> None:
         logger.exception("解说产出后扣费异常（不影响成片交付）job=%s", job_id)
 
 
-def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit_only: str | None = None, script_only: bool = False, trim_start: float = 0.0, trim_end: float = 0.0, mode: str | None = None, template: str = "standard", commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, title: str = "", style: str = "none", style_intensity: int = 65, src_filename: str = "", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", bgm: str = "off", bgm_file: str = "", bgm_volume: float = 0.18, subtitle_size: float = 1.0, subtitle_color: str = "FFFFFF", subtitle_border: float = 1.0, subtitle_border_color: str = "000000", subtitle_pos: str = "bottom", max_chars: int = 0, original_speed: bool = True, feather_opt: str = "") -> None:
+def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit_only: str | None = None, script_only: bool = False, trim_start: float = 0.0, trim_end: float = 0.0, mode: str | None = None, template: str = "standard", commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, title: str = "", style: str = "none", style_intensity: int = 65, src_filename: str = "", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", bgm: str = "off", bgm_file: str = "", bgm_volume: float = 0.18, subtitle_size: float = 1.0, subtitle_color: str = "FFFFFF", subtitle_border: float = 1.0, subtitle_border_color: str = "000000", subtitle_pos: str = "bottom", max_chars: int = 0, original_speed: bool = True, feather_opt: str = "", crop_ratio: str = "") -> None:
     """后台线程：把下载好的视频喂给 commentary-pipeline，等成片回传。
 
     复用用户现成的 process.py 整条管线（whisper 转写 → edge-tts 配音 → ffmpeg 出片），
@@ -2000,7 +2005,7 @@ def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit
                                     style_intensity=style_intensity,
                                     intro_sec=intro_sec, outro_sec=outro_sec,
                                     drama_start_sec=drama_start_sec, drama_end_sec=drama_end_sec,
-                                    export_jianying=export_jianying)
+                                    export_jianying=export_jianying, crop_ratio=crop_ratio)
     try:
         # 调用前先确认运行环境就绪，失败直接给清晰错误，避免盲目 subprocess 后误报「执行成功」
         if not COMMENTARY_RT.ready():
@@ -2108,7 +2113,8 @@ def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit
                                         subtitle_border=subtitle_border,
                                         subtitle_border_color=subtitle_border_color,
                                         subtitle_pos=subtitle_pos,
-                                        max_chars=max_chars, original_speed=original_speed)
+                                        max_chars=max_chars, original_speed=original_speed,
+                                        crop_ratio=crop_ratio)
         if edit_only:
             if _bundled:
                 args = [sys.executable, "--vdl-commentary-worker",
@@ -2391,7 +2397,7 @@ def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit
             commentary_jobs[job_id]["error"] = str(exc)[:800]
         logger.exception("解说任务 %s 失败", job_id)
 
-def _commentary_run_http(job_id: str, src_path: str, vertical: bool, voice: str, mode: str | None = None, template: str = "standard", commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, style: str = "none", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", style_intensity: int = 65) -> None:
+def _commentary_run_http(job_id: str, src_path: str, vertical: bool, voice: str, mode: str | None = None, template: str = "standard", commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, style: str = "none", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", style_intensity: int = 65, crop_ratio: str = "") -> None:
     """HTTP 模式：把已下载视频 POST 给独立解说 worker，轮询取回成片到主站本地。"""
     endpoint = COMMENTARY_ENDPOINT
     headers = {"X-Worker-Token": COMMENTARY_TOKEN} if COMMENTARY_TOKEN else {}
@@ -2449,6 +2455,7 @@ def _commentary_run_http(job_id: str, src_path: str, vertical: bool, voice: str,
             "tts_provider": tts_provider or "",
             "correct_transcript": correct_transcript or "",
             "export_jianying": export_jianying or "",
+            "crop_ratio": crop_ratio or "",
         }
             if retain_pct is not None:
                 data["retain_pct"] = str(retain_pct)
@@ -3093,6 +3100,10 @@ class CommentaryRequest(BaseModel):
     # 本地拖拽上传（stash）场景由前端带上用户原始文件名，避免片名退化成 sha 哈希。
     title: str = Field(default="", max_length=256)
     vertical: bool = False
+    # 画幅比例预设（2026-11-11）：auto=不裁切、跟源视频原比例走；16:9/4:3/1:1/9:16=居中 cover-crop 原片到该比例。
+    # 旧前端不传该字段（CommentaryRequest 默认 ""）→ 后端按 vertical 旧语义处理，零破坏性。
+    crop_ratio: str = Field(default="", max_length=32,
+                            description="画幅比例预设: auto=不裁切跟源视频; 16:9/4:3/1:1/9:16=居中 cover-crop 原片到该比例")
     voice: str = Field(default="", max_length=64)
     trim_start: float = Field(default=0.0, ge=0.0)
     trim_end: float = Field(default=0.0, ge=0.0)

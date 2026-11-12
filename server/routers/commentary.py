@@ -424,7 +424,8 @@ def create_commentary(payload: app.CommentaryRequest, request: app.Request) -> d
                     subtitle_pos=payload.subtitle_pos,
                     max_chars=payload.max_chars,
                     feather_opt=payload.feather_opt,
-                    export_jianying=payload.export_jianying)
+                    export_jianying=payload.export_jianying,
+                    crop_ratio=payload.crop_ratio)
     return {"job_id": job_id, "status": "running"}
 
 @router.post("/api/commentary/feather-detect")
@@ -495,6 +496,7 @@ def create_commentary_upload(
     drama_end_sec: float = app.Form(None),
     export_jianying: str = app.Form(""),
     feather_opt: str = app.Form(""),
+    crop_ratio: str = app.Form(""),
     request: app.Request = None,
 ) -> dict:
     """上传本地视频 → 直接生成解说成片。
@@ -557,7 +559,8 @@ def create_commentary_upload(
                     title=final_title,
                     src_filename=src_filename,
                     feather_opt=feather_opt,
-                    export_jianying=export_jianying)
+                    export_jianying=export_jianying,
+                    crop_ratio=crop_ratio)
     return {"job_id": job_id, "status": "running"}
 
 @router.post("/api/commentary/script-only/upload")
@@ -658,7 +661,8 @@ def create_script_only_upload(
                     style=style,
                     style_intensity=style_intensity,
                     src_filename=src_filename,
-                    export_jianying=export_jianying)
+                    export_jianying=export_jianying,
+                    crop_ratio=crop_ratio)
     return {"job_id": job_id, "status": "running"}
 
 @router.get("/api/commentary/diagnostics")
@@ -1083,7 +1087,8 @@ def create_script_only(payload: app.CommentaryRequest, request: app.Request) -> 
                     subtitle_pos=payload.subtitle_pos,
                     max_chars=payload.max_chars,
                     feather_opt=payload.feather_opt,
-                    export_jianying=payload.export_jianying)
+                    export_jianying=payload.export_jianying,
+                    crop_ratio=payload.crop_ratio)
     return {"job_id": job_id, "status": "running"}
 
 @router.get("/api/commentary/script/{job_id}")
@@ -1308,6 +1313,9 @@ def render_script(job_id: str, vertical: bool = app.Form(False), voice: str = ap
         saved = seg_data.get("options") or {}
     except Exception:
         saved = {}
+    # 画幅比例预设（2026-11-11）：前端渲染请求带的 crop_ratio 优先；
+    # 老前端/老脚本没带时回落到 script.json 里保存的 options.crop_ratio，最后才 auto（跟源视频走）。
+    crop_ratio = (crop_ratio or "").strip() or (saved.get("crop_ratio") or "").strip() or "auto"
 
     # 渲染前统一预检：不管脚本有没有被人工改过，都按「字数 vs 片段时长」校验一遍。
     # 🔴 2026-10-26 用户拍板：**绝不放慢画面，解说保持完整**。此前检出超标段会

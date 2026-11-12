@@ -11501,6 +11501,9 @@ el.dwVidPlayer.hidden = true;
       // 剪辑模板二选一（2026-11-11）：standard=现有原片配旁白，reconstruct=重构叙事二创。
       // 默认 standard，旧前端/老脚本不含该字段时服务端同样按 standard 处理，行为零变化。
       template: tplEl ? tplEl.value : 'standard',
+      // 画幅比例预设（2026-11-11）：auto/16:9/4:3/1:1/9:16。后端 edit_ffmpeg 按此做居中 cover-crop。
+      // 旧后端不认该字段（CommentaryRequest extra=ignore）会忽略，照常由 vertical 决定画幅，零破坏性。
+      crop_ratio: comGetAspect(),
       commentary_type: typeEl ? typeEl.value : 'deep_hl',
       highlight_source: srcEl ? srcEl.value : 'ai',
       intro_highlight: !!(el.comIntroHighlight && el.comIntroHighlight.checked),
@@ -11803,14 +11806,12 @@ el.dwVidPlayer.hidden = true;
     return aspectEl ? aspectEl.value : 'auto';
   };
 
-  /** 把画幅选择解析成 vertical 布尔值。auto 时用已加载的视频宽高判断（竖屏素材→竖屏）。 */
+  /** 把画幅选择解析成 vertical 布尔值，仅用于兼容旧后端/旧脚本（它们只认 vertical 开关）。
+   *  新后端按 crop_ratio 字段（comGetOptions 下发）做居中 cover-crop，不再依赖本函数。
+   *  只有显式选「竖屏 9:16」才算竖屏；其余（auto/16:9/4:3/1:1）一律横屏基线，避免旧逻辑
+   *  在「auto+竖屏素材」时偷偷把画幅改成 9:16（auto 的新语义是「跟视频走、不裁切」）。 */
   const resolveVertical = () => {
-    const aspect = comGetAspect();
-    if (aspect === 'vertical') return true;
-    if (aspect === 'landscape') return false;
-    // auto：优先用已加载的预览宽高；拿不到（媒体库直出未加载预览）就按横屏兜底。
-    if (comPreviewW > 0 && comPreviewH > 0) return comPreviewH > comPreviewW;
-    return false;
+    return comGetAspect() === '9:16';
   };
 
   /** 根据按钮 id 返回初始文案，错误恢复时使用。 */
@@ -12696,6 +12697,8 @@ el.dwVidPlayer.hidden = true;
     try {
       const form = new FormData();
       form.append('vertical', String(resolveVertical()));
+      // 画幅比例预设：随 FormData 单独下发（render 端点不接受整个 options 对象）。
+      form.append('crop_ratio', comGetAspect());
       form.append('voice', comVoiceForBackend());
       const exportJy = comGetExportJianying();
       if (exportJy) form.append('export_jianying', exportJy);
@@ -13627,7 +13630,14 @@ el.dwVidPlayer.hidden = true;
   const comPreviewRatio = () => {
     const v = el.comPreview;
     if (v && v.videoWidth > 0 && v.videoHeight > 0) return v.videoWidth / v.videoHeight;
-    return comGetAspect() === 'vertical' ? 9 / 16 : 16 / 9;
+    // 无片/未就绪：跟「画幅」预设返回目标比例，让用户提前在舞台看到成片画幅。
+    switch (comGetAspect()) {
+      case '9:16': return 9 / 16;
+      case '1:1':  return 1;
+      case '4:3':  return 4 / 3;
+      case '16:9': return 16 / 9;
+      default:     return 16 / 9;   // auto 兜底横屏
+    }
   };
   const comSyncStageSize = () => {
     const stage = el.comPreview && el.comPreview.closest('.com-preview-stage');
@@ -16373,7 +16383,9 @@ el.dwVidPlayer.hidden = true;
       kind: 'radio',
       title: '画幅',
       hide: '.com-opt-row',
-      options: [['auto', '自动（跟视频走）'], ['landscape', '横屏 16:9'], ['vertical', '竖屏 9:16']],
+      // 2026-11-11：由「自动/横屏/竖屏」扩展为比例预设。成片按选中的比例居中 cover-crop 原片。
+      // auto＝不裁切、跟视频原比例走；其余四项强制目标比例（去黑边 / 凑竖屏发布等场景）。
+      options: [['auto', '自动（跟视频走）'], ['16:9', '横屏 16:9'], ['4:3', '4:3 传统屏'], ['1:1', '方形 1:1'], ['9:16', '竖屏 9:16']],
     },
     comStyle: {
       kind: 'radio',
