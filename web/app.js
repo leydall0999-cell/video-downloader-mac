@@ -16777,10 +16777,10 @@ el.dwVidPlayer.hidden = true;
       '<div style="display:flex;justify-content:space-between;font-size:12px;color:#8a8f99;"><span>变速</span><span id="comRandSpeedVal">1.00×</span></div>' +
       '<input type="range" id="comRandSpeed" min="0.5" max="1.5" step="0.01" value="1" style="width:100%;"></div>' +
       '<div style="margin-bottom:6px;">' +
-      '<div style="display:flex;justify-content:space-between;font-size:12px;color:#8a8f99;"><span>音频变调（半音）</span><span id="comRandPitchVal">0.00</span></div>' +
-      '<input type="range" id="comRandPitch" min="-3" max="3" step="0.1" value="0" style="width:100%;"></div>' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px;color:#8a8f99;"><span>音频变调（半音）</span><span id="comRandPitchVal">0.30</span></div>' +
+      '<input type="range" id="comRandPitch" min="0" max="0.5" step="0.05" value="0.3" style="width:100%;"></div>' +
       '<div style="font-size:11px;color:#6b7280;line-height:1.45;">改分辨率/取景/编码/metadata/音频让平台难判搬运。' +
-      '音频变调（±2 内几乎听不出）打在平台最狠的音频指纹上；加噪点、色彩滤镜、变调均随包可用，无需完整版 ffmpeg。</div>' +
+      '音频变调 0.05~0.5 半音内几乎听不出（语速不变），却打在平台最狠的音频指纹上；加噪点、色彩滤镜、变调均随包可用，无需完整版 ffmpeg。</div>' +
       '</div>';
     anchor.insertAdjacentElement('afterend', panel);
     const onEl = panel.querySelector('#comRandOn');
