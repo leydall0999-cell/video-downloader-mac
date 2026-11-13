@@ -174,9 +174,13 @@
     this._segments = {};  // host -> 占位 item
   }
 
-  /** entry: {url, mime, referer, pageUrl, pageTitle, cookie, ts, contentLength}
+  /** entry: {url, mime, referer, pageUrl, pageTitle, title, cookie, ts, contentLength}
    *  contentLength：响应头 Content-Length（字节，0/缺省 = 未知）→ 存成 item.size，
    *  推到桌面端后展示「大小」（2026-10-02 用户「把标题、时长、大小也加上」）。
+   *  title：**媒体原名**（页面 DOM 里用户看到的歌名/片名，2026-11-13）。与 pageTitle
+   *  （浏览器标签页标题，SPA 站点恒为站点名）是两个概念，不可混用 —— 直链 URL 常是
+   *  纯数字 ID / 哈希，原名只在页面上，扩展必须单独采集并端到端透传，否则面板和
+   *  落盘文件名都是「2044590383.mp3」这种一串数字。
    *  返回 {kind, item, isNew} 或 null（与媒体无关）。 */
   SniffStore.prototype.add = function (entry) {
     var kind = classifyMedia(entry.url, entry.mime);
@@ -190,10 +194,12 @@
         ph = this._segments[host] = {
           url: entry.url, mime: entry.mime || '', kind: 'segment', host: host,
           referer: entry.referer || '', pageUrl: entry.pageUrl || '',
-          pageTitle: entry.pageTitle || '', firstSeen: entry.ts || 0, count: 0
+          pageTitle: entry.pageTitle || '', title: entry.title || '',
+          firstSeen: entry.ts || 0, count: 0
         };
       }
       ph.count += 1;
+      if (entry.title) ph.title = entry.title;
       return { kind: kind, item: ph, isNew: ph.count === 1 };
     }
 
@@ -202,13 +208,16 @@
       it.count += 1;
       // 首次响应可能没有 Content-Length（分块/流式）→ 后续响应补上，已有值不覆盖
       if (!it.size && entry.contentLength) it.size = entry.contentLength;
+      // 原名由页面侧采集，常比嗅探晚一步（用户先点下载 → 才发媒体请求，或反过来）→
+      // 后到即覆盖，绝不让它停在 URL basename 上。
+      if (entry.title) it.title = entry.title;
       return { kind: kind, item: it, isNew: false };
     }
     it = {
       url: entry.url, mime: entry.mime || '', kind: kind, host: host,
       referer: entry.referer || '', pageUrl: entry.pageUrl || '',
-      pageTitle: entry.pageTitle || '', cookie: entry.cookie || '',
-      firstSeen: entry.ts || 0, count: 1,
+      pageTitle: entry.pageTitle || '', title: entry.title || '',
+      cookie: entry.cookie || '', firstSeen: entry.ts || 0, count: 1,
       size: entry.contentLength || 0
     };
     this._index[entry.url] = it;
@@ -221,6 +230,28 @@
       delete this._index[old.url];
     }
     return { kind: kind, item: it, isNew: true };
+  };
+
+  /** 页面侧采集到原名后按 URL 精确补写（原名常比嗅探晚一步）。 */
+  SniffStore.prototype.setTitle = function (url, name) {
+    var it = this._index[url];
+    if (!it || !name) return null;
+    it.title = name;
+    return it;
+  };
+
+  /** 时间窗口兜底：给「最近一条可下载项」补原名。
+   *  适用：页面没给出下载链接 URL（JS 动态 fetch → Blob），无法精确关联时。
+   *  items 是旧→新，倒序第一条即最新；超出窗口宁可不补，绝不误伤旧页内容。 */
+  SniffStore.prototype.setTitleToRecent = function (name, nowSec, windowSec) {
+    for (var i = this.items.length - 1; i >= 0; i--) {
+      var it = this.items[i];
+      if (it.kind === 'segment') continue;
+      if (it.firstSeen && (nowSec - it.firstSeen) > (windowSec || 45)) return null;
+      it.title = name;
+      return it;
+    }
+    return null;
   };
 
   /** 可下载项（playlist + media），最新在前。 */
@@ -298,6 +329,44 @@
 
   TabStores.prototype.add = function (tabId, entry) {
     return this.store(tabId).add(entry);
+  };
+
+  /** 跨标签页按 URL 补写原名：`target="_blank"` 打开下载直链时，媒体请求落在
+   *  **新标签页**，而名称是在**原标签页**点出来的 —— 只查一个 tab 必然漏。
+   *  下载直链常带一次性 time/sign 查询串 ⇒ 除完整相等外，同 origin+pathname 也算命中。 */
+  TabStores.prototype.setTitleByUrl = function (url, name) {
+    var norm = function (u) {
+      try { var p = new URL(u); return p.origin + p.pathname; }
+      catch (e) { return String(u || '').split('?')[0].split('#')[0]; }
+    };
+    var key = norm(url);
+    for (var k in this.tabs) {
+      if (!Object.prototype.hasOwnProperty.call(this.tabs, k)) continue;
+      var items = this.tabs[k].items;
+      for (var i = items.length - 1; i >= 0; i--) {
+        if (items[i].url === url || norm(items[i].url) === key) {
+          items[i].title = name;
+          return items[i];
+        }
+      }
+    }
+    return null;
+  };
+
+  /** 时间窗口兜底：优先指定 tab，其次全局最新一条。返回被补写的 item 或 null。 */
+  TabStores.prototype.setTitleRecent = function (tabId, name, nowSec, windowSec) {
+    var own = this.tabs[String(tabId)];
+    if (own) {
+      var it = own.setTitleToRecent(name, nowSec, windowSec);
+      if (it) return it;
+    }
+    var keys = Object.keys(this.tabs);
+    for (var i = keys.length - 1; i >= 0; i--) {
+      if (String(keys[i]) === String(tabId)) continue;
+      var it2 = this.tabs[keys[i]].setTitleToRecent(name, nowSec, windowSec);
+      if (it2) return it2;
+    }
+    return null;
   };
 
   TabStores.prototype.list = function (tabId) {

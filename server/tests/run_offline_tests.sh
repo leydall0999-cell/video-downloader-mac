@@ -191,6 +191,7 @@ run_one test_desktop_copy_wiring.py            # 桌面壳「复制链接」：�
 run_one test_clip_autodetect_wiring.py         # 剪贴板自动识别一键下载：原生桥读取 + 提示条接线（2026-10-02 用户「复制链接后粘贴下载」）
 run_one test_sniffer_ext_ping.py            # 嗅探「扩展心跳」三态：未连/在线/过期离线（2026-10-01 面板简化配套）
 run_one test_sniffer_ext_push.py            # 嗅探「扩展自动直推」：入库/去重/kind_hint/脏数据（2026-10-01 自动嗅探配套）
+run_one test_sniffer_media_name.py          # 嗅探「媒体原名」：页面采集→入库→桌面端→下载器不被 basename 覆盖（2026-11-13 用户「一串数字，要原名」）
 run_one test_ext_version_cmp.py             # 扩展版本比对守卫：只在「内置比已装新」时提示升级（2026-10-01 防降级）
 run_one test_sniffer_quality_wiring.py      # 嗅探链路清晰度透传：后端白名单 + 桌面端用它 + 两端都有下拉（2026-10-01 用户「没法选择分辨率」）
 run_one test_sniffer_badge_hide_wiring.py   # 嗅探入口徽标**常显**（2026-10-23 用户「嗅探是隐藏了吗」；此前扩展在线即自动收起，今改为一律显示，条件隐藏不得加回）
@@ -631,6 +632,22 @@ echo "=== extension/tests/test_sniff_meta.js（嗅探条目元信息：标题/�
 # 否则「标题同、时长刚拿到」的补推会被当成重复丢掉 —— 列表里的时长永远空着。
 if [ -n "$NODE_BIN" ]; then
   if "$NODE_BIN" "$REPO/extension/tests/test_sniff_meta.js"; then
+    PASS=$((PASS+1))
+  else
+    FAIL=$((FAIL+1)); FAILED_LIST="$FAILED_LIST $f"
+  fi
+else
+  echo "⚠️ 跳过（无 node）"
+fi
+
+echo ""
+echo "=== extension/tests/test_media_name.js（媒体原名：页面采集→后台关联→推送，node + chrome 桩） ==="
+# 2026-11-13 用户「从插件上发送过来不是原名是一串数字，要原名」。实测 flac.music.hi.cn：
+# 直链是纯数字 ID / 哈希，Content-Disposition 也是哈希，document.title 是 SPA 恒定站点名，
+# 真实原名只在页面 DOM（下载弹窗「名称：xxx」）。要害在两种时序（名字先到 / 流先到）
+# 与「带 href 却不匹配的名称绝不串到别的媒体」，源码 grep 不出来，故跑真实 background.js。
+if [ -n "$NODE_BIN" ]; then
+  if "$NODE_BIN" "$REPO/extension/tests/test_media_name.js"; then
     PASS=$((PASS+1))
   else
     FAIL=$((FAIL+1)); FAILED_LIST="$FAILED_LIST $f"

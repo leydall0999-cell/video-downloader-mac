@@ -39,6 +39,14 @@ var sentUrls = {};           // storage.session['sentUrls']，已发送标记（
 var headerMeta = new Map();  // requestId -> {referer, cookie}
 var persistTimer = null;
 
+// 媒体原名线索（v1.0.57）：页面侧 pagewatch.js 采集到的「用户可见原名」。
+// 直链 URL 常是纯数字 ID / 哈希，响应头 Content-Disposition 也是哈希，原名只在
+// 页面 DOM 里 —— 必须单独按 URL 关联到嗅探条目，否则面板和落盘都是一串数字。
+// 保留最近 60s / 40 条；服务端 _register 对 title 采用「后到即覆盖」，补推幂等。
+var nameHints = [];            // {name, href, tabId, ts(ms)}，新→旧倒序遍历
+var NAME_HINT_TTL = 60000;
+var NAME_HINT_MAX = 40;
+
 // ---- 视频页直推的记账（2026-10-01 v1.0.40）----
 // 为什么必须落 storage.local：MV3 的 SW 空闲就被 Chrome 挂起，内存里的 pushTries 一重启
 // 就归零。用户「YouTube 嗅探不到」时，面板上 pushed=0 既可能是「根本没推」，也可能只是
@@ -261,6 +269,9 @@ function handleCompleted(details) {
     referer: meta.referer || initiator || '',
     pageUrl: meta.referer || initiator || details.url || '',
     pageTitle: '',
+    // 媒体原名（页面 DOM 采集，按 URL / 时间窗口关联）——URL 是纯数字 ID 时，
+    // 这才是用户要看到、要用来存盘的名字；缺省空串时后端回落到 basename，行为不变。
+    title: nameForUrl(url, tabId),
     cookie: meta.cookie || '',
     // 大小（2026-10-02）：onHeadersReceived 已从响应头解析出 contentLength → 落进条目
     contentLength: picked.contentLength,
@@ -464,6 +475,62 @@ function checkActiveTabPush(force) {
   } catch (e) { /* 无窗口场景忽略 */ }
 }
 
+/** 两条 URL 是否指向同一份媒体：完整相等，或同 origin + pathname
+ *  （下载直链常带 time/sign 之类一次性查询串，忽略它才能对上）。 */
+function sameMediaUrl(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  try {
+    var pa = new URL(a), pb = new URL(b);
+    return pa.origin === pb.origin && pa.pathname === pb.pathname;
+  } catch (e) { return false; }
+}
+
+/** 新建嗅探条目时，从页面线索里「认领」原名：
+ *  ① 下载链接 URL 精确匹配（最强，`target="_blank"` 新开标签也认得）；
+ *  ② 20s 内、同标签页优先、且**没有 href** 的线索（页面用 window.open / Blob
+ *     下发时拿不到链接，只能靠时间窗口兜底）。
+ *  🔴 带 href 却没匹配上的名称**绝不参与**时间窗口兜底：它明确属于另一份媒体，
+ *     挂到新条目上就是「上一首歌的名字串到这一首」（测试 test_media_name.js 钉住）。
+ *  超过 20s 的旧名称一律不认。 */
+function nameForUrl(url, tabId) {
+  var now = Date.now();
+  var i, h;
+  for (i = nameHints.length - 1; i >= 0; i--) {
+    h = nameHints[i];
+    if (now - h.ts > NAME_HINT_TTL) continue;
+    if (h.href && sameMediaUrl(h.href, url)) return h.name;
+  }
+  for (i = nameHints.length - 1; i >= 0; i--) {
+    h = nameHints[i];
+    if (now - h.ts > 20000 || h.href) continue;
+    if (tabId > 0 && h.tabId === tabId) return h.name;
+  }
+  for (i = nameHints.length - 1; i >= 0; i--) {
+    h = nameHints[i];
+    if (now - h.ts > 20000 || h.href) continue;
+    return h.name;
+  }
+  return '';
+}
+
+/** 页面侧上报原名时：先记住，再给「已嗅到但当时还没名字」的条目补写并重推。
+ *  只在 URL 能匹配上时补写 —— 名称晚到却对不上 URL 时宁可不补，绝不误伤同页
+ *  其它音频（试听流与下载流常是两个不同地址）。服务端按 URL 去重，补推无副作用。 */
+function noteMediaName(name, href, tabId) {
+  if (!name) return;
+  var now = Date.now();
+  nameHints.push({ name: name, href: href || '', tabId: tabId, ts: now });
+  while (nameHints.length > NAME_HINT_MAX) nameHints.shift();
+  while (nameHints.length && now - nameHints[0].ts > NAME_HINT_TTL) nameHints.shift();
+  if (!href) return;
+  var hit = store.setTitleByUrl(href, name);
+  if (hit) {
+    persist();
+    pushToServer(hit);
+  }
+}
+
 function pushToServer(item) {
   if (!item || !item.url) return;
   pushTries++;
@@ -482,6 +549,9 @@ function pushToServer(item) {
             cookie: item.cookie || '',
             page_url: item.pageUrl || '',
             page_title: item.pageTitle || '',
+            // 媒体原名（2026-11-13）：页面 DOM 采集的用户可见名称，服务端/桌面端
+            // 优先用它做列表标题与保存文件名；空串则回落到原有的 basename 行为。
+            title: item.title || '',
             // 大小（字节，0=未知）：来自响应头 Content-Length，见 sniff-core pickHeaders
             size: item.size || 0
           }]
@@ -846,6 +916,15 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         setTimeout(function () { reply('', 0); }, 800);
       })();
       return true;   // 异步
+    case 'mediaName': {
+      // 页面侧原名采集（v1.0.57）：sender.tab 就是用户点下载的那一页。
+      // 内容脚本发消息必然唤醒被挂起的 SW，所以这条通道在 SPA 站点也活着。
+      var mnTab = sender && sender.tab ? sender.tab : null;
+      var mnTid = (mnTab && typeof mnTab.id === 'number') ? mnTab.id : -1;
+      noteMediaName(String(msg.name || '').slice(0, 160), String(msg.href || ''), mnTid);
+      sendResponse({ ok: true });
+      return false;
+    }
     case 'setEnabled':
       enabled = !!msg.value;
       chrome.storage.local.set({ enabled: enabled });

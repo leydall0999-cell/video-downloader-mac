@@ -712,7 +712,9 @@
       //   标题 = 页面标题（page_title，扩展拿到 tab.title 后回填；SPA 换页时后到覆盖）；
       //   时长 = 页面侧 <video>.duration（服务端 page 条目「后到即覆盖」）；
       //   大小 = 响应头 Content-Length（加密流站点抓不到 → 该项自动不显示，不写 0）。
-      const title = String(it.page_title || '').trim();
+      // 原名优先（2026-11-13）：it.title 是扩展从页面 DOM 采集的媒体原名；
+      // page_title 只是浏览器标签页标题（SPA 站点恒为站点名），仅在无原名时兜底。
+      const title = String(it.title || it.page_title || '').trim();
       let host = '';
       try { host = new URL(it.url).hostname; } catch (e) { host = ''; }
       const metaParts = [];
@@ -805,6 +807,9 @@
     };
 
     const downloadItem = async (it, div, silent = false) => {
+      // 原名优先（2026-11-13）：下载请求 / 任务卡片 / 提示条统一用媒体原名，
+      // 否则直链 URL 的 basename（2044590383.mp3 之类）会一路显示成一串数字。
+      const itemTitle = String(it.title || it.page_title || '').trim();
       const btn = div.querySelector('.dl');
       btn.disabled = true;
       btn.textContent = '创建中…';
@@ -815,7 +820,7 @@
           body: JSON.stringify({
             url: it.url,
             quality: dlQuality,
-            title: it.page_title || '',
+            title: itemTitle,
             cookie: it.cookie || '',
             proxy: '',
             extract_script: '',
@@ -829,13 +834,13 @@
           }),
         });
         const refs = createTaskCard(data.task_id, {
-          title: it.page_title || '(嗅探流)',
+          title: itemTitle || '(嗅探流)',
           platform: '嗅探',
         });
         trackTask(data.task_id, refs, '');
         btn.textContent = '已加入下载 ✓';
         sniffToast('✓ 已加入下载队列（' + (Q_LABEL[dlQuality] || dlQuality) +
-          '）：' + (it.page_title || it.url.slice(0, 60)));
+          '）：' + (itemTitle || it.url.slice(0, 60)));
         return { ok: true, message: '' };
       } catch (e) {
         btn.disabled = false;

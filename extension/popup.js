@@ -120,8 +120,13 @@ function renderItem(it) {
   chip.textContent = chipText(it.kind);
   var url = document.createElement('span');
   url.className = 'item-url';
-  url.textContent = it.url;
+  // 原名优先（2026-11-13）：媒体 URL 常是纯数字 ID / 哈希（2044590383.mp3），
+  // 用户第一眼要看到的是页面上那个真实歌名。完整地址仍保留在 title 悬停提示与
+  // 「复制」按钮里，不丢任何信息。
+  var realName = String(it.title || '').trim();
+  url.textContent = realName || it.url;
   url.title = it.url;
+  if (realName) url.className = 'item-url item-named';
   top.appendChild(chip);
   top.appendChild(url);
 
@@ -338,6 +343,9 @@ function postSend(base, it, carry) {
     referer: it.referer || '',
     page_url: it.pageUrl || it.pageTitle || '',
     page_title: it.pageTitle || '',
+    // 媒体原名（2026-11-13）：走 /api/sniffer/send → add_manual → 桌面端建任务，
+    // 服务端据此做列表标题与落盘文件名，避免 URL basename 把任务名变成一串数字。
+    title: it.title || '',
     cookie: carry ? (it.cookie || '') : '',
     // 条目类型：必须随包上报。页面 URL（YouTube 等）没有媒体后缀，服务端判不出类型，
     // 少这一项就会被当成「直链」，进而丢弃上面的 quality（2026-10-02 真机实测发现）。

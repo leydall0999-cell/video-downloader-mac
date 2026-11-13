@@ -8223,8 +8223,19 @@ def _run_once(task: DownloadTask, store: TaskStore, quality_key: str, cookie: st
                 info = _sohu_aggregate(info)
             if info.get("webpage_url"):
                 task.source_url = info["webpage_url"]
-            if info.get("title"):
+            # 🔴 媒体原名优先级最高（2026-11-13「从插件发过来是一串数字，要原名」）：
+            #   task.title 来自 /api/download 的 payload.title（扩展从页面 DOM 采集的原名）。
+            #   probe() 对直链会短路返回 URL basename 当 info["title"]
+            #   （2044590383.mp3 / M5000039SjyS2Oznrv.mp3），旧逻辑无条件覆盖 task.title
+            #   ⇒ 任务卡片与落盘文件名全变成一串数字。
+            #   这里改为：有原名就保留，并同步写回 info["title"] —— 只改 task.title 不够，
+            #   yt-dlp 的 outtmpl 用的是 info 里的 %(title)s，不写回文件名仍是 basename。
+            _user_title = str(getattr(task, "title", "") or "").strip()
+            if _user_title:
+                info["title"] = _user_title
+            elif info.get("title"):
                 store.update(task.id, title=info["title"])
+            if info.get("title"):
                 task.add_step("解析视频信息", "done", f"已获取标题《{info['title']}》")
             else:
                 task.add_step("解析视频信息", "done", "未获取到标题")
@@ -8349,7 +8360,7 @@ def _run_once(task: DownloadTask, store: TaskStore, quality_key: str, cookie: st
                                         _ya["visitor_data"] = [_yd_vd]
                                 with _YoutubeDL(_fb_opts) as _ydl2:
                                     info = _ydl2.extract_info(task.url, download=False) or info
-                                    if info.get("title"):
+                                    if info.get("title") and not _user_title:
                                         store.update(task.id, title=info["title"])
                                     _ydl2.process_info(info)
                                 _done = True

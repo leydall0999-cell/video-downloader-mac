@@ -118,6 +118,9 @@ button.mini { font-size: 11px; padding: 1px 7px; border-radius: 5px; }
   text-overflow: ellipsis; direction: rtl; text-align: left;
   font-size: 12px; color: var(--fg);
 }
+/* 显示的是媒体原名而非 URL（2026-11-13）：URL 为了露出尾部才用 rtl，
+   但中文歌名里的「 - 」会被 rtl 重排成乱序，必须改回 ltr。 */
+.item-url.item-named { direction: ltr; font-weight: 600; }
 .item-title {
   margin-top: 2px; font-size: 11px; color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

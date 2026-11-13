@@ -493,6 +493,9 @@ class CDPSniffer:
             "referer": (payload.get("referer") or "").strip(),
             "page_url": (payload.get("page_url") or "").strip(),
             "page_title": payload.get("page_title") or "",
+            # 媒体原名（2026-11-13）：popup 点「下载」走 /api/sniffer/send → add_manual，
+            # 桌面端 take_picked 后用它建任务，避免任务名/落盘名变成 URL basename 数字串。
+            "title": (payload.get("title") or "").strip()[:200],
             "cookie": (payload.get("cookie") or "").strip()[:8192],
             "quality": quality,
             "first_seen": time.time(),
@@ -718,10 +721,16 @@ class CDPSniffer:
 
     def _register(self, *, url: str, mime: str, kind: str, referer: str,
                   page_url: str, page_title: str, source: str = "cdp",
-                  cookie: str = "", size: int = 0, duration: float = 0.0) -> None:
+                  cookie: str = "", size: int = 0, duration: float = 0.0,
+                  title: str = "") -> None:
         # size / duration（2026-10-02 用户「把嗅探到的视频信息也加上：标题、时长、大小」）：
         #   size     = 响应头 Content-Length（字节），扩展 webRequest / CDP responseReceived 都取得到；
         #   duration = 页面 <video>.duration（秒），只有**页面侧内容脚本**拿得到（扩展 pagewatch.js）。
+        # title（2026-11-13「从插件发过来是一串数字，要原名」）：**媒体原名**，由扩展
+        #   从页面 DOM 采集（下载弹窗里的「名称：xxx」）。与 page_title（浏览器标签页
+        #   标题，SPA 站点恒为站点名）是两个概念，不可混用。直链 URL 常是纯数字 ID /
+        #   哈希，原名只在页面上；且扩展补推的时机可能比嗅探晚一步，所以这里对 title
+        #   采用**后到即覆盖**，确保不会停在 basename 上。前端/下载统一 `title or page_title`。
         # 0 一律表示「未知」（没有 0 字节的媒体、也没 0 秒的视频），前端据此隐藏该项。
         with self._lock:
             if url in self._items:
@@ -739,6 +748,9 @@ class CDPSniffer:
                         row["page_title"] = page_title
                 elif page_title and not row.get("page_title"):
                     row["page_title"] = page_title
+                # 原名后到即覆盖（扩展补推 / 用户点了下载才报出名字，都属正常时序）
+                if title:
+                    row["title"] = title
                 if cookie and not row.get("cookie"):
                     row["cookie"] = cookie
                 # 时长/大小：page 条目（SPA 视频页）的时长要等播放器就绪才准、换页还会变 →
@@ -753,6 +765,7 @@ class CDPSniffer:
                 "url": url, "mime": mime, "kind": kind, "referer": referer,
                 "page_url": page_url, "page_title": page_title,
                 "first_seen": time.time(), "count": 1, "source": source,
+                "title": title,
             }
             if cookie:
                 item["cookie"] = cookie
@@ -806,6 +819,9 @@ class CDPSniffer:
                 page_url=str(row.get("page_url") or ""),
                 page_title=str(row.get("page_title") or ""),
                 source="ext", cookie=str(row.get("cookie") or ""),
+                # 媒体原名（2026-11-13）：ext-push 自动推送与页面采集的成果，
+                # _register 对 title「后到即覆盖」，补推只改名不加条目。
+                title=str(row.get("title") or "").strip()[:200],
                 # 标题/时长/大小（2026-10-02）：扩展按条目带上来，缺省 0 = 未知。
                 size=_as_int(row.get("size")),
                 duration=_as_float(row.get("duration")),
