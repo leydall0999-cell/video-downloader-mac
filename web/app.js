@@ -11838,13 +11838,16 @@ el.dwVidPlayer.hidden = true;
     const noiseEl = document.getElementById('comRandNoise');
     const filterEl = document.getElementById('comRandFilter');
     const speedEl = document.getElementById('comRandSpeed');
+    const pitchEl = document.getElementById('comRandPitch');
     const noise = noiseEl ? (parseInt(noiseEl.value, 10) || 0) : 0;
     const filter = filterEl ? (parseFloat(filterEl.value) || 0) : 0;
     let speed = speedEl ? (parseFloat(speedEl.value) || 1) : 1;
     speed = Math.max(0.5, Math.min(1.5, speed));
+    const pitch = pitchEl ? (parseFloat(pitchEl.value) || 0) : 0;
     if (noise > 0) suffix += `!noise=${noise}`;
     if (filter > 0) suffix += `!filter=${filter.toFixed(2)}`;
     if (Math.abs(speed - 1.0) > 0.001) suffix += `!speed=${speed.toFixed(3)}`;
+    if (Math.abs(pitch) > 0.001) suffix += `!pitch=${pitch.toFixed(2)}`;
     return base + suffix;
   };
 
@@ -16773,8 +16776,11 @@ el.dwVidPlayer.hidden = true;
       '<div style="margin-bottom:6px;">' +
       '<div style="display:flex;justify-content:space-between;font-size:12px;color:#8a8f99;"><span>变速</span><span id="comRandSpeedVal">1.00×</span></div>' +
       '<input type="range" id="comRandSpeed" min="0.5" max="1.5" step="0.01" value="1" style="width:100%;"></div>' +
-      '<div style="font-size:11px;color:#6b7280;line-height:1.45;">改分辨率/取景/编码参数/metadata 让平台难判搬运。' +
-      '噪点、色彩滤镜需完整版 ffmpeg，当前版本自动跳过（变速、metadata、编码随机仍生效）。</div>' +
+      '<div style="margin-bottom:6px;">' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px;color:#8a8f99;"><span>音频变调（半音）</span><span id="comRandPitchVal">0.00</span></div>' +
+      '<input type="range" id="comRandPitch" min="-3" max="3" step="0.1" value="0" style="width:100%;"></div>' +
+      '<div style="font-size:11px;color:#6b7280;line-height:1.45;">改分辨率/取景/编码/metadata/音频让平台难判搬运。' +
+      '音频变调（±2 内几乎听不出）打在平台最狠的音频指纹上；加噪点、色彩滤镜、变调均随包可用，无需完整版 ffmpeg。</div>' +
       '</div>';
     anchor.insertAdjacentElement('afterend', panel);
     const onEl = panel.querySelector('#comRandOn');
@@ -16782,18 +16788,21 @@ el.dwVidPlayer.hidden = true;
     const noiseEl = panel.querySelector('#comRandNoise');
     const filterEl = panel.querySelector('#comRandFilter');
     const speedEl = panel.querySelector('#comRandSpeed');
+    const pitchEl = panel.querySelector('#comRandPitch');
     const noiseVal = panel.querySelector('#comRandNoiseVal');
     const filterVal = panel.querySelector('#comRandFilterVal');
     const speedVal = panel.querySelector('#comRandSpeedVal');
+    const pitchVal = panel.querySelector('#comRandPitchVal');
     const refresh = () => {
       if (noiseVal) noiseVal.textContent = noiseEl ? noiseEl.value : '0';
       if (filterVal) filterVal.textContent = (filterEl ? parseFloat(filterEl.value) : 0).toFixed(2);
       if (speedVal) speedVal.textContent = (speedEl ? parseFloat(speedEl.value) : 1).toFixed(2) + '×';
+      if (pitchVal) pitchVal.textContent = (pitchEl ? parseFloat(pitchEl.value) : 0).toFixed(2);
     };
     if (onEl) onEl.addEventListener('change', () => {
       if (adv) adv.style.display = onEl.checked ? 'block' : 'none';
     });
-    [noiseEl, filterEl, speedEl].forEach((el) => { if (el) el.addEventListener('input', refresh); });
+    [noiseEl, filterEl, speedEl, pitchEl].forEach((el) => { if (el) el.addEventListener('input', refresh); });
     refresh();
   })();
   // 初始化后按当前「解说类型」把不该参与的下拉灰掉
