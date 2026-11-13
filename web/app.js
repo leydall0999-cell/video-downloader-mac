@@ -24611,6 +24611,12 @@ el.dwVidPlayer.hidden = true;
         label: '已解决',
         note: '付费会员站，已明确不提供',
       },
+      {
+        hosts: ['haokan.baidu.com'],
+        since: '2026-11-13',
+        label: '已解决',
+        note: 'yt-dlp 已内置好看视频解析，重新粘贴链接即可',
+      },
     ].map((r) => ({ ...r, sinceTs: new Date(r.since + 'T00:00:00').getTime() / 1000 }));
     // 本地零点：不能用 Date.parse(since)（走 UTC，比本地晚 8 小时，会把修复当天
     // 凌晨的需求误判成修复前）
@@ -24619,13 +24625,21 @@ el.dwVidPlayer.hidden = true;
       if (!h) return null;
       return DEMAND_RESOLVED.find((r) => r.hosts.some((p) => h === p || h.endsWith('.' + p))) || null;
     };
+    // 测试/保留域名（RFC 2606）直接剔除：健康巡检用 selfcheck.invalid、
+    // xxx.example.com 这类假样本验证「未知平台」分支，它们同样会被登记成需求，
+    // 但根本不是用户要的站，列在榜上只占排期视野（2026-11-13 实测榜上前两条就是）。
+    const demandIsTestHost = (host) => {
+      const h = String(host || '').toLowerCase().replace(/\.$/, '');
+      if (!h || h === 'localhost') return true;
+      return /\.(invalid|test|localhost|example|example\.com|example\.net|example\.org)$/.test(h);
+    };
     const loadResolveDemand = async () => {
       const box = $('adminDemandBody');
       if (!box) return;
       box.innerHTML = '<div class="admin-empty">加载中…</div>';
       try {
         const d = await adminRequest('/api/admin/resolve-demand?days=84');
-        const rows = (d && d.demand) || [];
+        const rows = ((d && d.demand) || []).filter((x) => !demandIsTestHost(x.host));
         if (!rows.length) {
           box.innerHTML = '<div class="admin-empty">暂无需求登记——出现「暂不支持」类解析失败后自动累计</div>';
           return;

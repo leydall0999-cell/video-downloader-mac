@@ -5817,12 +5817,103 @@ def _sohu_download_parts(task: DownloadTask, info: dict[str, Any], base_opts: di
 class _NeedYtDlp(Exception):
     """标记该平台应交由 probe() 末尾的 yt-dlp 通用流程解析（已收录且 yt-dlp 支持）。"""
 
+def _browser_fallback_info(url: str) -> dict[str, Any] | None:
+    """yt-dlp 完全没有提取器时，用随包无头内核抓真实媒体流（见 browser_resolve）。
+
+    适用场景：页面里只有 `<video src="blob:...">`、直链要等播放器 JS 发请求才出现的
+    SPA 站（需求榜里的 lespark.us 就是腾讯云 VOD 这种）。这类站静态抓 HTML 永远是空，
+    yt-dlp 只会报 unsupported，唯一出路是把页面真的跑起来。
+
+    只在桌面端启用：云端实例是多用户共享进程，不能替某个请求拉起浏览器。
+    任何失败都返回 None —— 调用方会继续抛原有错误，用户看到的话术一字不变。
+    """
+    if os.environ.get("VDL_INSTANCE", "").strip().lower() == "cloud":
+        return None
+    try:
+        import browser_resolve
+        data = browser_resolve.resolve(url, timeout=55)
+    except Exception as exc:  # noqa: BLE001 — 兜底失败绝不影响原有报错路径
+        logger.info("[probe] 浏览器兜底未成功 host=%s: %s",
+                    _host_of(url), str(exc)[:160])
+        return None
+    stream = data.get("video_url") or ""
+    if not stream:
+        return None
+    headers = data.get("http_headers") or {}
+    info = {
+        "id": "",
+        "title": data.get("title") or "视频",
+        "url": stream,
+        "ext": data.get("ext") or "mp4",
+        "protocol": data.get("protocol") or "https",
+        "extractor": "browser-fallback",
+        "extractor_key": "BrowserFallback",
+        "webpage_url": data.get("webpage_url") or url,
+        "http_headers": headers,
+        "formats": [{
+            "url": stream,
+            "ext": data.get("ext") or "mp4",
+            "protocol": data.get("protocol") or "https",
+            "format_id": "browser-auto",
+            "format_note": "浏览器抓取",
+            "http_headers": headers,
+        }],
+        "duration": None,
+        "thumbnail": "",
+    }
+    logger.info("[probe] 浏览器兜底成功 host=%s elapsed=%ss",
+                _host_of(url), data.get("elapsed"))
+    return info
+
+
+def _host_is_unknown_to_vdl(host: str) -> bool:
+    """未知域名判定：既不在 VDL 平台白名单、也不在 yt-dlp 已知支持列表。
+
+    这类链接 yt-dlp 必败（SPA 站的 m3u8/直链要等播放器 JS 发请求才出现，generic
+    提取器永远看不到），恰恰是「浏览器兜底」该接管的场景。已知平台（YouTube / B站
+    / 抖音…）一律返回 False —— 它们的失败不应走耗时的浏览器重试，原样报错更准。
+    """
+    if not host:
+        return False
+    h = host.lower()
+    # yt-dlp 已知支持（与 _friendly_error 同款判定）
+    _YT_KNOWN = ("hotstar.com", "kinopoisk.ru", "hd.kinopoisk.ru")
+    if any(h == d or h.endswith("." + d) for d in _YT_KNOWN):
+        return False
+    try:
+        from platforms import SUPPORTED_PLATFORMS as _SP
+    except Exception:
+        _SP = ()
+    for _p in _SP:
+        for _d in getattr(_p, "domains", ()):
+            _d = str(_d).lower()
+            if h == _d or h.endswith("." + _d):
+                return False
+    return True
+
+
 def probe(url: str, cookie: str = "", proxy: str = "") -> dict[str, Any]:
     """probe 包装：本线程禁用 yt-dlp 连接复用（代理客户端复用缺陷，见
-    _patch_requests_handler_no_keepalive），再转 _probe_impl。"""
+    _patch_requests_handler_no_keepalive），再转 _probe_impl。
+
+    2026-11-13 起多一层「通用浏览器兜底」：对「VDL 与 yt-dlp 都不认识的未知域名」
+    （如需求榜里的 lespark.us 这类腾讯云 VOD 系 SPA）补一次真实浏览器抓流。
+    触发条件刻意放宽到「未知域名」而非某几个错误类别——因为 yt-dlp 在代理/网络
+    抖动时可能报告 unknown 类别而非 unsupported_platform，只认类别会漏接。
+    兜底只尝试一次，成功即返回；失败原样抛出原有错误/分类，话术一字不变。
+    """
     _no_keepalive_local.enabled = True
     try:
-        return _probe_impl(url, cookie=cookie, proxy=proxy)
+        try:
+            return _probe_impl(url, cookie=cookie, proxy=proxy)
+        except ResolveError as exc:
+            cat = getattr(exc, "category", "")
+            if cat in ("pending_extractor", "unsupported_platform") \
+                    or _host_is_unknown_to_vdl(_host_of(url)):
+                info = _browser_fallback_info(url)
+                if info is not None:
+                    return info
+            raise
     finally:
         _no_keepalive_local.enabled = False
 
