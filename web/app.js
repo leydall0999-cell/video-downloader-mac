@@ -11503,7 +11503,8 @@ el.dwVidPlayer.hidden = true;
       template: tplEl ? tplEl.value : 'standard',
       // 画幅比例预设（2026-11-11）：auto/16:9/4:3/1:1/9:16。后端 edit_ffmpeg 按此做居中 cover-crop。
       // 旧后端不认该字段（CommentaryRequest extra=ignore）会忽略，照常由 vertical 决定画幅，零破坏性。
-      crop_ratio: comGetAspect(),
+      // 2026-11-13：comGetCropSpec 在基础比例后拼接指纹扰动后缀（!rand/!noise/!filter/!speed）。
+      crop_ratio: comGetCropSpec(),
       commentary_type: typeEl ? typeEl.value : 'deep_hl',
       highlight_source: srcEl ? srcEl.value : 'ai',
       intro_highlight: !!(el.comIntroHighlight && el.comIntroHighlight.checked),
@@ -11822,6 +11823,29 @@ el.dwVidPlayer.hidden = true;
       return cr ? `${cr.w}:${cr.h}` : 'auto';
     }
     return v;
+  };
+
+  /** 画幅规格 + 指纹扰动后缀：在基础比例后拼接 !rand/!noise/!filter/!speed。
+   *  仅当「降低重复检测」开关打开时附加；手动噪点/滤镜/变速由滑块控制，非默认关闭。
+   *  基础比例本身仍由 comGetAspect 返回（舞台比例 / 竖屏判定不受影响）。 */
+  const comGetCropSpec = () => {
+    const base = comGetAspect();
+    const onEl = document.getElementById('comRandOn');
+    if (!onEl || !onEl.checked) return base;
+    const modeEl = document.querySelector('input[name="comRandMode"]:checked');
+    const mode = modeEl ? modeEl.value : 'light';
+    let suffix = `!rand=${mode}`;
+    const noiseEl = document.getElementById('comRandNoise');
+    const filterEl = document.getElementById('comRandFilter');
+    const speedEl = document.getElementById('comRandSpeed');
+    const noise = noiseEl ? (parseInt(noiseEl.value, 10) || 0) : 0;
+    const filter = filterEl ? (parseFloat(filterEl.value) || 0) : 0;
+    let speed = speedEl ? (parseFloat(speedEl.value) || 1) : 1;
+    speed = Math.max(0.5, Math.min(1.5, speed));
+    if (noise > 0) suffix += `!noise=${noise}`;
+    if (filter > 0) suffix += `!filter=${filter.toFixed(2)}`;
+    if (Math.abs(speed - 1.0) > 0.001) suffix += `!speed=${speed.toFixed(3)}`;
+    return base + suffix;
   };
 
   /** 把画幅选择解析成 vertical 布尔值，仅用于兼容旧后端/旧脚本（它们只认 vertical 开关）。
@@ -12717,7 +12741,8 @@ el.dwVidPlayer.hidden = true;
       const form = new FormData();
       form.append('vertical', String(resolveVertical()));
       // 画幅比例预设：随 FormData 单独下发（render 端点不接受整个 options 对象）。
-      form.append('crop_ratio', comGetAspect());
+      // 2026-11-13：comGetCropSpec 含指纹扰动后缀（!rand/!noise/!filter/!speed）。
+      form.append('crop_ratio', comGetCropSpec());
       form.append('voice', comVoiceForBackend());
       const exportJy = comGetExportJianying();
       if (exportJy) form.append('export_jianying', exportJy);
@@ -16720,6 +16745,56 @@ el.dwVidPlayer.hidden = true;
       inp.addEventListener('input', () => { if (isCustom()) resync(); });
     });
     toggle();
+  })();
+  // ---- 画幅「降低重复检测（改指纹）」面板（2026-11-13）：随机化 + 手动噪点/滤镜/变速 ----
+  (function initComRand() {
+    const block = document.querySelector('[data-com-select="comAspect"]');
+    if (!block) return;
+    const anchor = block.querySelector('.com-custom-ratio') || block.querySelector('.com-mode-dropdown');
+    if (!anchor) return;
+    const panel = document.createElement('div');
+    panel.className = 'com-rand';
+    panel.style.cssText = 'margin-top:8px;border-top:1px dashed #2a2f3a;padding-top:8px;';
+    panel.innerHTML =
+      '<label class="com-rand-row" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#c7ccd6;cursor:pointer;">' +
+      '<input type="checkbox" id="comRandOn"> 降低重复检测（改视频指纹）</label>' +
+      '<div class="com-rand-adv" style="display:none;margin-top:8px;">' +
+      '<div style="font-size:12px;color:#8a8f99;margin-bottom:4px;">随机强度（分辨率/取景/编码/metadata）</div>' +
+      '<div style="display:flex;gap:10px;margin-bottom:8px;font-size:12px;color:#c7ccd6;">' +
+      '<label><input type="radio" name="comRandMode" value="light" checked> 轻</label>' +
+      '<label><input type="radio" name="comRandMode" value="medium"> 中</label>' +
+      '<label><input type="radio" name="comRandMode" value="strong"> 强</label></div>' +
+      '<div style="margin-bottom:6px;">' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px;color:#8a8f99;"><span>加噪点</span><span id="comRandNoiseVal">0</span></div>' +
+      '<input type="range" id="comRandNoise" min="0" max="30" step="1" value="0" style="width:100%;"></div>' +
+      '<div style="margin-bottom:6px;">' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px;color:#8a8f99;"><span>色彩滤镜</span><span id="comRandFilterVal">0.00</span></div>' +
+      '<input type="range" id="comRandFilter" min="0" max="1" step="0.05" value="0" style="width:100%;"></div>' +
+      '<div style="margin-bottom:6px;">' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px;color:#8a8f99;"><span>变速</span><span id="comRandSpeedVal">1.00×</span></div>' +
+      '<input type="range" id="comRandSpeed" min="0.5" max="1.5" step="0.01" value="1" style="width:100%;"></div>' +
+      '<div style="font-size:11px;color:#6b7280;line-height:1.45;">改分辨率/取景/编码参数/metadata 让平台难判搬运。' +
+      '噪点、色彩滤镜需完整版 ffmpeg，当前版本自动跳过（变速、metadata、编码随机仍生效）。</div>' +
+      '</div>';
+    anchor.insertAdjacentElement('afterend', panel);
+    const onEl = panel.querySelector('#comRandOn');
+    const adv = panel.querySelector('.com-rand-adv');
+    const noiseEl = panel.querySelector('#comRandNoise');
+    const filterEl = panel.querySelector('#comRandFilter');
+    const speedEl = panel.querySelector('#comRandSpeed');
+    const noiseVal = panel.querySelector('#comRandNoiseVal');
+    const filterVal = panel.querySelector('#comRandFilterVal');
+    const speedVal = panel.querySelector('#comRandSpeedVal');
+    const refresh = () => {
+      if (noiseVal) noiseVal.textContent = noiseEl ? noiseEl.value : '0';
+      if (filterVal) filterVal.textContent = (filterEl ? parseFloat(filterEl.value) : 0).toFixed(2);
+      if (speedVal) speedVal.textContent = (speedEl ? parseFloat(speedEl.value) : 1).toFixed(2) + '×';
+    };
+    if (onEl) onEl.addEventListener('change', () => {
+      if (adv) adv.style.display = onEl.checked ? 'block' : 'none';
+    });
+    [noiseEl, filterEl, speedEl].forEach((el) => { if (el) el.addEventListener('input', refresh); });
+    refresh();
   })();
   // 初始化后按当前「解说类型」把不该参与的下拉灰掉
   applyComSelectEnabled();
