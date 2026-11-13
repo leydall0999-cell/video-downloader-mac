@@ -138,6 +138,31 @@ pushes.length = 0;
 complete(U_C, 9);
 eq(lastItem().title, '光辉岁月', '★ 同 origin+pathname 即认作同一媒体（忽略 time/sign）');
 
+// ---- 3b) 真实事故样本（2026-11-13 10:12 用户实测任务 8a9e9500a46048db）----
+// 直链来自 flac.music.hi.cn 的下载弹窗，落到 m8.music.126.net 的预签名地址：
+//   <a href="...7e8a90eba6f846e5109ffd40f866cef8.mp3?vuutv=AAA" target="_blank">
+// 真实媒体请求在**新标签页**，且 vuutv 签名每次不同 ⇒ 必须按 origin+pathname 关联，
+// 不能做字符串全等比较。修好后这条任务的 title 应是「友谊之光 - Maria Cordero」，
+// 而不是 URL basename「7e8a90eba6f846e5109ffd40f866cef8」。
+const REAL_PATH = 'https://m8.music.126.net/20261113103604/dee400da6f1677816a5688153fd45e25/' +
+  'ymusic/000f/5152/510e/7e8a90eba6f846e5109ffd40f866cef8.mp3';
+const REAL_HREF = REAL_PATH + '?vuutv=%2F%2BGx2GMPi9gpmEoXir3lIzHoQrW4EJdgXsWu';
+const REAL_SEEN = REAL_PATH + '?vuutv=ANOTHER_SIGN_EVERY_TIME';
+eq(sendName(NAME, REAL_HREF, 13).ok, true, '真实站点的「名称：」线索被接受');
+pushes.length = 0;
+complete(REAL_SEEN, 14);   // target="_blank" ⇒ 媒体请求落在另一个标签页
+eq(lastItem().title, NAME, '★ 预签名查询串不同 + 跨标签页仍能认领原名');
+eq(lastItem().url, REAL_SEEN, '真实 URL 原样保留（不影响下载）');
+
+// 同一真实站点，名称**晚到**的路径（先嗅到流、页面后报名字）也要能补推
+const REAL_PATH2 = REAL_PATH.replace('7e8a90', 'aa112233');
+const REAL_SEEN2 = REAL_PATH2 + '?vuutv=ZZZ';
+pushes.length = 0;
+complete(REAL_SEEN2, 15);
+eq(lastItem().title || '', '', '首推时还没有原名，允许为空');
+eq(sendName('光辉岁月', REAL_PATH2 + '?vuutv=OLD', 15).ok, true, '晚到原名回执 ok');
+eq(lastItem().title, '光辉岁月', '★ 晚到原名按 origin+pathname 补推成功（忽略签名参数）');
+
 // ---- 4) 带 href 却没对上的名称，绝不串到别的媒体（上一首歌的名字不许串到这一首）----
 pushes.length = 0;
 complete('https://cdn.x.com/other-555.mp3', 11);
@@ -157,7 +182,7 @@ pushes.length = 0;
 complete('https://cdn.x.com/brand-new-777.mp3', 10);
 eq(lastItem().title || '', '', '★ 超 60s 的旧名称不许挂到新条目上');
 
-// ---- 5) sniff-core 层：按 URL 补写 + 时间窗口兜底 ----
+// ---- 7) sniff-core 层：按 URL 补写 + 时间窗口兜底 ----
 const CORE = globalThis.VDLSniffCore;
 const s = new CORE.TabStores();
 s.add(1, { url: 'https://a.com/1.mp3', mime: 'audio/mpeg', ts: 1000 });
@@ -170,7 +195,7 @@ eq(h2 && h2.title, '窗口兜底', 'sniff-core 时间窗口兜底');
 const h3 = s2.setTitleRecent(2, '过期不该补', 3000, 45);
 eq(h3, null, '超窗口不补');
 
-// ---- 6) 契约：popup 手动发送与显示也必须带原名 ----
+// ---- 8) 契约：popup 手动发送与显示也必须带原名 ----
 const popup = fs.readFileSync(path.join(__dirname, '..', 'popup.js'), 'utf8');
 ok(/title:\s*it\.title\s*\|\|\s*''/.test(popup), '★ popup /api/sniffer/send 载荷带 title');
 ok(/var realName = String\(it\.title \|\| ''\)\.trim\(\);/.test(popup), '★ popup 读取 it.title 作为媒体原名');
