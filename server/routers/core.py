@@ -302,7 +302,15 @@ async def douyin_login(request: app.Request) -> dict:
         raise app.HTTPException(status_code=400, detail="网页版不支持抖音扫码登录，请使用桌面端 App")
     try:
         import douyin_cdp
-        return douyin_cdp.open_login_page()
+        res = douyin_cdp.open_login_page()
+        # 本机没有任何可用于扫码的系统 Chromium 浏览器 ⇒ 400 + 明确指引，
+        # 不要落到笼统的 500「打开 Chrome 失败」（用户看不懂该装什么）。
+        if isinstance(res, dict) and res.get("ok") is False:
+            raise app.HTTPException(
+                status_code=400,
+                detail="%s。%s" % (res.get("error") or "登录抖音失败", res.get("hint") or ""),
+            )
+        return res
     except app.HTTPException:
         raise
     except Exception as _e:  # noqa: BLE001

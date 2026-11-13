@@ -98,8 +98,9 @@ def _browser_candidates() -> list[str]:
       - **内嵌优先**：App 自带 chrome-headless-shell（见 `_bundled_chromium`），
         打头的就是它 ⇒ 装了本 App 的用户 100% 能用，不看系统里有什么。
       - Windows 另有 **自带 Edge** 兜底（Chromium 内核），覆盖率接近 100%。
-      - macOS 自带 Safari（WKWebView）**不支持 CDP**，所以系统候选只有
-        Chrome/Edge/Brave/Chromium —— 仅在内嵌缺失（旧包/开发态）时才需要。
+      - macOS 自带 Safari（WKWebView）**不支持 CDP**，系统候选只认 Chromium 内核的：
+        Chrome / Edge / Brave / Chromium / Arc / Opera / Vivaldi / Yandex / QQ浏览器 等
+        —— 仅在内嵌缺失（旧包/开发态）或需要「扫码登录可见窗口」时才需要。
     """
     bundled = _bundled_chromium()
     if sys.platform == "darwin":
@@ -108,6 +109,12 @@ def _browser_candidates() -> list[str]:
             "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
             "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
             "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Arc.app/Contents/MacOS/Arc",
+            "/Applications/Opera.app/Contents/MacOS/Opera",
+            "/Applications/Vivaldi.app/Contents/MacOS/Vivaldi",
+            "/Applications/Yandex.app/Contents/MacOS/Yandex",
+            "/Applications/QQBrowser.app/Contents/MacOS/QQBrowser",
+            "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
             os.path.expanduser(
                 "~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
         ]
@@ -123,6 +130,18 @@ def _browser_candidates() -> list[str]:
             os.path.join(pf86, r"Microsoft\Edge\Application\msedge.exe"),
             os.path.join(pf, r"Microsoft\Edge\Application\msedge.exe"),
             os.path.join(la, r"BraveSoftware\Brave-Browser\Application\brave.exe"),
+            os.path.join(la, r"Programs\Opera\launcher.exe"),
+            os.path.join(la, r"Programs\Opera\opera.exe"),
+            os.path.join(pf, r"Opera\launcher.exe"),
+            os.path.join(la, r"Vivaldi\Application\vivaldi.exe"),
+            os.path.join(la, r"Yandex\YandexBrowser\Application\browser.exe"),
+            os.path.join(la, r"Chromium\Application\chrome.exe"),
+            # 国内主流 Chromium 内核浏览器（排在 Chrome/Edge 之后作兜底）
+            os.path.join(pf86, r"Tencent\QQBrowser\QQBrowser.exe"),
+            os.path.join(pf, r"Tencent\QQBrowser\QQBrowser.exe"),
+            os.path.join(pf86, r"360\360se6\Application\360se.exe"),
+            os.path.join(la, r"360Chrome\Chrome\Application\360chrome.exe"),
+            os.path.join(pf86, r"Sogou\SogouExplorer\SogouExplorer.exe"),
         ]
     return [
         "/usr/bin/google-chrome",
@@ -138,6 +157,20 @@ def _default_chrome() -> str:
         if p and os.path.exists(p):
             return p
     return cands[0]   # 都没有：返回首选路径，交给调用方报「未找到浏览器」
+
+
+def _system_browser() -> str:
+    """返回本机已安装的**系统** Chromium 浏览器（不含内嵌 headless-shell）。
+
+    登录扫码需要可见窗口，而内嵌 headless-shell 是无头二进制、永远没有窗口，
+    所以登录路径必须挑一个系统浏览器。没有任何系统浏览器时返回 ""（调用方据此
+    给友好提示，而不是崩一个不认识的 500）。
+    """
+    bundled = _bundled_chromium()
+    for p in _browser_candidates():
+        if p and p != bundled and os.path.exists(p):
+            return p
+    return ""
 
 
 PORT = int(os.environ.get("VDL_DOUYIN_CDP_PORT", "9341"))
@@ -744,8 +777,11 @@ def _ensure_mode(headless: bool) -> None:
         _ENGINE_BIN = CHROME
         want = ["--headless=new", "--user-agent=" + _real_ua()]
     else:
-        # 有头扫码：必须用系统 Chrome（headless-shell 无窗口）
-        _ENGINE_BIN = CHROME
+        # 有头扫码：必须用系统 Chromium 浏览器（headless-shell 无窗口，二维码看不见）。
+        # 🔴 不能直接用 CHROME —— 候选列表内嵌排首位，打包版 CHROME 会解析成
+        # headless-shell，导致登录弹不出可见窗口。这里显式挑一个系统浏览器。
+        sys_bin = _system_browser()
+        _ENGINE_BIN = sys_bin or CHROME
         want = []
     cur = _instance_is_headless()
     if cur is not None and cur == headless and _page_targets():
@@ -932,6 +968,17 @@ def login_status() -> bool:
 def open_login_page() -> dict:
     """打开抖音登录页（展示二维码），用户在手机抖音 App 扫码登录。"""
     with _LOCK:
+        # 扫码登录必须弹出可见窗口 ⇒ 需要系统 Chromium 浏览器（内嵌 headless-shell 无窗口）。
+        # 没有任何系统浏览器时返回 ok:false，由路由层转成友好提示（不抛异常、不依赖 yt_dlp）。
+        if not _system_browser():
+            return {
+                "ok": False,
+                "error": "登录抖音需要先安装一个 Chromium 内核浏览器",
+                "hint": "扫码登录要在看得见窗口里展示二维码，本机未检测到 Chrome / Edge / "
+                        "Brave / Arc / Opera / Vivaldi / QQ浏览器 等。请先安装其一；"
+                        "仅下载公开视频无需登录，不受影响。",
+                "category": "douyin_no_system_browser",
+            }
         # 解析用的是无头实例（看不见窗口）⇒ 登录必须先切成有头可见实例
         _ensure_mode(headless=False)
         _set_window_visible(True)
