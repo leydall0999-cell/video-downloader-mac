@@ -11525,6 +11525,10 @@ el.dwVidPlayer.hidden = true;
       bgm: (comMusic || {}).kind || 'off',
       bgm_file: (comMusic && comMusic.kind === 'user') ? (comMusic.file || '') : '',
       bgm_volume: (comMusic && comMusic.volume) || 0.18,
+      // 裁剪 / 放置点：仅当用户明确设过才下发（0/空不参与混音参数）
+      bgm_clip_start: (comMusic && comMusic.clipStart) ? Number(comMusic.clipStart) : 0,
+      bgm_clip_end: (comMusic && comMusic.clipEnd) ? Number(comMusic.clipEnd) : 0,
+      bgm_offset: (comMusic && comMusic.offset) ? Number(comMusic.offset) : 0,
       subtitle_size: comNumVal(el.comSubSize, 1.0),
       subtitle_color: el.comSubColor ? el.comSubColor.value.replace('#', '').toUpperCase() : 'FFFFFF',
       subtitle_border: comNumVal(el.comSubBorder, 1.0),
@@ -12776,6 +12780,9 @@ el.dwVidPlayer.hidden = true;
       if (_opts.bgm && _opts.bgm !== 'off') form.append('bgm', _opts.bgm);
       if (_opts.bgm === 'user' && _opts.bgm_file) form.append('bgm_file', _opts.bgm_file);
       form.append('bgm_volume', String(_opts.bgm_volume));
+      if (_opts.bgm_clip_start) form.append('bgm_clip_start', String(_opts.bgm_clip_start));
+      if (_opts.bgm_clip_end) form.append('bgm_clip_end', String(_opts.bgm_clip_end));
+      if (_opts.bgm_offset) form.append('bgm_offset', String(_opts.bgm_offset));
       form.append('subtitle_size', String(_opts.subtitle_size));
       form.append('subtitle_color', _opts.subtitle_color);
       form.append('subtitle_border', String(_opts.subtitle_border));
@@ -17277,7 +17284,7 @@ el.dwVidPlayer.hidden = true;
   //    初始化顺序上的 TDZ；payload 侧一律用 (comMusic || {}) 兜底取值。
   //    配乐在渲染成片时混入（后端 build 的 bgm/bgm_file/bgm_volume 参数一直在，只是
   //    2026-09-15 删掉「成片增强」里的 BGM 块后，前端恒发 off）。
-  var comMusic = { kind: 'off', file: '', volume: 0.18 };
+  var comMusic = { kind: 'off', file: '', volume: 0.18, clipStart: 0, clipEnd: 0, offset: 0 };
   var comMusicAuditionEl = null;
   var comMusicOutCache = null;              // { ts, item } 最近一次成片列表查询结果
   var comMusicCloudTracks = [];             // 云端曲库清单（含 local/path 标记）
@@ -17295,7 +17302,10 @@ el.dwVidPlayer.hidden = true;
     pop: $('comTlMusicPop'), opts: $('comTlMusicOpts'), fileRow: $('comTlMusicFileRow'),
     path: $('comTlMusicPath'), vol: $('comTlMusicVol'), volVal: $('comTlMusicVolVal'),
     pick: $('comTlMusicPick'), audition: $('comTlMusicAudition'),
-    apply: $('comTlMusicApply'), hint: $('comTlMusicHint')
+    apply: $('comTlMusicApply'), hint: $('comTlMusicHint'),
+    edit: $('comTlMusicEdit'),
+    clipStart: $('comTlMusicClipStart'), clipEnd: $('comTlMusicClipEnd'),
+    clipTip: $('comTlMusicClipTip'), offset: $('comTlMusicOffset')
   });
   const comMusicLabel = () => COM_MUSIC_LABEL[comMusic.kind] || '无';
   const comMusicFileBase = () => String(comMusic.file || '').split('/').pop();
@@ -17330,6 +17340,17 @@ el.dwVidPlayer.hidden = true;
     if (m.path) { m.path.textContent = comMusic.file || '未选择'; m.path.title = comMusic.file || ''; }
     if (m.vol) m.vol.value = String(comMusic.volume);
     if (m.volVal) m.volVal.textContent = pct;
+    // 裁剪 / 放置点：仅非 off 时显示；本地文件 / 云端曲才有可裁内容（内置和弦是氛围垫，裁意义不大但仍允许）
+    if (m.edit) m.edit.hidden = !on;
+    if (m.clipStart) m.clipStart.value = String(comMusic.clipStart || 0);
+    if (m.clipEnd) m.clipEnd.value = String(comMusic.clipEnd || 0);
+    if (m.offset) m.offset.value = String(comMusic.offset || 0);
+    if (m.clipTip) {
+      const cs = Number(comMusic.clipStart) || 0, ce = Number(comMusic.clipEnd) || 0;
+      m.clipTip.textContent = (cs > 0 || ce > 0)
+        ? ('裁剪：' + (cs > 0 ? cs + 's' : '开头') + ' → ' + (ce > 0 ? ce + 's' : '末尾'))
+        : '';
+    }
     comMusicCardHead();
   };
   /** 最近一支成片（试听内置曲 / 一键应用都要 cid）。15s 内复用，避免频繁打接口。 */
@@ -17364,6 +17385,11 @@ el.dwVidPlayer.hidden = true;
     const cur = (st.bgm && st.bgm !== 'off')
       ? (COM_MUSIC_LABEL[st.bgm] || st.bgm) + ' · ' + Math.round((st.volume || 0.18) * 100) + '%'
       : '无配乐';
+    // 回读上次应用的裁剪/放置点（仅当用户设过，避免把 0 误写回 UI）
+    if (st.bgm_clip_start != null) comMusic.clipStart = Number(st.bgm_clip_start) || 0;
+    if (st.bgm_clip_end != null) comMusic.clipEnd = Number(st.bgm_clip_end) || 0;
+    if (st.bgm_offset != null) comMusic.offset = Number(st.bgm_offset) || 0;
+    comMusicSync();
     comMusicHint('最近成片：' + item.name + '（当前 ' + cur + '）。改完点「应用到当前成片」秒级生效，不用重渲。');
   };
   const comMusicOpen = (open) => {
@@ -17394,11 +17420,28 @@ el.dwVidPlayer.hidden = true;
     try {
       const a = new Audio(url);
       a.volume = Math.max(0, Math.min(1, comMusic.volume));
+      // 裁剪预览：本地/云端文件从 clipStart 起播，到 clipEnd 停（内置和弦无独立音源，跳过）
+      const cs = Number(comMusic.clipStart) || 0;
+      const ce = Number(comMusic.clipEnd) || 0;
+      const canSeek = comMusic.kind === 'user';
+      if (canSeek && cs > 0) {
+        a.addEventListener('loadedmetadata', () => {
+          try { a.currentTime = Math.min(cs, (a.duration || 1e9) - 0.1); } catch (_) {}
+        });
+      }
+      if (canSeek && ce > 0) {
+        a.addEventListener('timeupdate', () => {
+          if (a.currentTime >= ce) { try { a.pause(); } catch (_) {} comMusicStopAudition(); }
+        });
+      }
       a.addEventListener('ended', comMusicStopAudition);
       comMusicAuditionEl = a;
       await a.play();
       if (comMusicAuditionEl !== a) return;   // 播放期间已被停掉
-      comMusicHint('试听中…（音量按上面的滑块，实际成片里也是这个音量）', 'ok');
+      const seg = (cs > 0 || ce > 0)
+        ? ('（预览裁剪段 ' + (cs > 0 ? cs + 's' : '开头') + '→' + (ce > 0 ? ce + 's' : '末尾') + '）')
+        : '';
+      comMusicHint('试听中…' + seg + '（音量按上面的滑块，实际成片里也是这个音量）', 'ok');
     } catch (e) {
       comMusicStopAudition();
       comMusicHint('试听失败：' + ((e && e.message) || e), 'err');
@@ -17539,6 +17582,9 @@ el.dwVidPlayer.hidden = true;
       form.append('bgm', comMusic.kind);
       if (comMusic.kind === 'user' && comMusic.file) form.append('bgm_file', comMusic.file);
       form.append('bgm_volume', String(comMusic.volume));
+      if (comMusic.clipStart) form.append('bgm_clip_start', String(comMusic.clipStart));
+      if (comMusic.clipEnd) form.append('bgm_clip_end', String(comMusic.clipEnd));
+      if (comMusic.offset) form.append('bgm_offset', String(comMusic.offset));
       const r = await request('/api/commentary/remux-bgm/' + encodeURIComponent(item.id),
                               { method: 'POST', body: form });
       const jid = r && r.job_id;
@@ -17591,8 +17637,18 @@ el.dwVidPlayer.hidden = true;
       meta.className = 'com-music-meta';
       meta.textContent = (t.duration ? Math.round(t.duration) + 's' : '')
         + (t.local ? ' 已下载' : (t.size ? ' ' + Math.round(t.size / 1024) + 'KB' : ''));
+      const aud = document.createElement('button');
+      aud.type = 'button';
+      aud.className = 'btn btn-xs btn-secondary com-music-audition';
+      aud.textContent = '▶ 试听';
+      aud.title = '试听：' + t.name;
+      aud.addEventListener('click', (ev) => {
+        ev.stopPropagation();   // 别触发整行选中
+        comMusicCloudAudition(t);
+      });
       row.appendChild(name);
       row.appendChild(meta);
+      row.appendChild(aud);
       row.addEventListener('click', () => comMusicCardPick(t));
       e.list.appendChild(row);
     });
@@ -17639,6 +17695,9 @@ el.dwVidPlayer.hidden = true;
       form.append('bgm', comMusic.kind);
       if (comMusic.kind === 'user' && comMusic.file) form.append('bgm_file', comMusic.file);
       form.append('bgm_volume', String(comMusic.volume));
+      if (comMusic.clipStart) form.append('bgm_clip_start', String(comMusic.clipStart));
+      if (comMusic.clipEnd) form.append('bgm_clip_end', String(comMusic.clipEnd));
+      if (comMusic.offset) form.append('bgm_offset', String(comMusic.offset));
       const r = await request('/api/commentary/remux-bgm/' + encodeURIComponent(item.id), { method: 'POST', body: form });
       const jid = r && r.job_id;
       if (!jid) throw new Error('未拿到混音任务号');
@@ -17734,6 +17793,24 @@ el.dwVidPlayer.hidden = true;
         }
       });
     }
+    // 裁剪 / 放置点：写入 comMusic，同步提示；只影响下次渲染/应用到成片（不自行混音）
+    const _clipNum = (elv, def) => {
+      const v = parseFloat(elv);
+      if (!isFinite(v) || v < 0) return def;
+      return v;
+    };
+    if (m.clipStart) m.clipStart.addEventListener('input', () => {
+      comMusic.clipStart = _clipNum(m.clipStart.value, 0);
+      comMusicSync();
+    });
+    if (m.clipEnd) m.clipEnd.addEventListener('input', () => {
+      comMusic.clipEnd = _clipNum(m.clipEnd.value, 0);
+      comMusicSync();
+    });
+    if (m.offset) m.offset.addEventListener('input', () => {
+      comMusic.offset = _clipNum(m.offset.value, 0);
+      comMusicSync();
+    });
     const cloudToggle = $('comTlMusicCloudToggle');
     const cloudBox = $('comTlMusicCloud');
     if (cloudToggle && cloudBox) {

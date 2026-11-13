@@ -1606,7 +1606,9 @@ def _read_bgm_state(out_path: str | Path) -> dict | None:
     except Exception:
         return None
 
-def _write_bgm_state(out_path: str | Path, *, bgm: str, volume: float = 0.18, source: str = "render", extra: dict | None = None) -> None:
+def _write_bgm_state(out_path: str | Path, *, bgm: str, volume: float = 0.18, source: str = "render",
+                     bgm_clip_start: float | None = None, bgm_clip_end: float | None = None,
+                     bgm_offset: float | None = None, extra: dict | None = None) -> None:
     """写入 BGM 状态 manifest。bgm="off" 也写，便于区分「无 BGM」与「manifest 缺失」。"""
     try:
         meta_p = _bgm_state_path(out_path)
@@ -1616,6 +1618,11 @@ def _write_bgm_state(out_path: str | Path, *, bgm: str, volume: float = 0.18, so
             "source": source,
             "ts": int(time.time()),
         }
+        # 裁剪 / 起始放置点：仅当用户明确给过才落盘，避免把 None 当成 0 误还原
+        for _k, _v in (("bgm_clip_start", bgm_clip_start), ("bgm_clip_end", bgm_clip_end),
+                       ("bgm_offset", bgm_offset)):
+            if _v is not None:
+                payload[_k] = float(_v)
         if extra:
             payload.update(extra)
         meta_p.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
@@ -1745,6 +1752,8 @@ def _commentary_option_args(*, template: str = "standard", commentary_type: str 
                              intro_sec: float | None = None, outro_sec: float | None = None,
                              drama_start_sec: float | None = None, drama_end_sec: float | None = None,
                              bgm: str = "off", bgm_file: str = "", bgm_volume: float = 0.18,
+                             bgm_clip_start: float | None = None, bgm_clip_end: float | None = None,
+                             bgm_offset: float | None = None,
                              subtitle_size: float = 1.0, subtitle_color: str = "FFFFFF",
                              subtitle_border: float = 1.0, subtitle_border_color: str = "000000",
                              subtitle_pos: str = "bottom",
@@ -1796,8 +1805,16 @@ def _commentary_option_args(*, template: str = "standard", commentary_type: str 
             args += ["--bgm", "user", "--bgm-file", bgm_file]
         elif bgm in ("soft", "light", "epic"):
             args += ["--bgm", bgm]
-            if bgm_volume and abs(bgm_volume - 0.18) > 1e-6:
-                args += ["--bgm-volume", str(bgm_volume)]
+        # 音量（user 模式同样下发，之前只有内置曲才带——试听与成片口径统一）
+        if bgm_volume and abs(bgm_volume - 0.18) > 1e-6:
+            args += ["--bgm-volume", str(bgm_volume)]
+        # 裁剪（BGM 文件内部片段，秒）与放置时间点（成片时间轴起点，秒）
+        if bgm_clip_start is not None and float(bgm_clip_start) > 0:
+            args += ["--bgm-clip-start", str(float(bgm_clip_start))]
+        if bgm_clip_end is not None and float(bgm_clip_end) > 0:
+            args += ["--bgm-clip-end", str(float(bgm_clip_end))]
+        if bgm_offset is not None and float(bgm_offset) > 0:
+            args += ["--bgm-offset", str(float(bgm_offset))]
     if subtitle_size and abs(subtitle_size - 1.0) > 1e-6:
         args += ["--subtitle-size", str(subtitle_size)]
     if subtitle_color and subtitle_color.upper() != "FFFFFF":
@@ -1974,7 +1991,7 @@ def _commentary_charge_on_success(job_id: str) -> None:
         logger.exception("解说产出后扣费异常（不影响成片交付）job=%s", job_id)
 
 
-def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit_only: str | None = None, script_only: bool = False, trim_start: float = 0.0, trim_end: float = 0.0, mode: str | None = None, template: str = "standard", commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, title: str = "", style: str = "none", style_intensity: int = 65, src_filename: str = "", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", bgm: str = "off", bgm_file: str = "", bgm_volume: float = 0.18, subtitle_size: float = 1.0, subtitle_color: str = "FFFFFF", subtitle_border: float = 1.0, subtitle_border_color: str = "000000", subtitle_pos: str = "bottom", max_chars: int = 0, original_speed: bool = True, feather_opt: str = "", crop_ratio: str = "") -> None:
+def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit_only: str | None = None, script_only: bool = False, trim_start: float = 0.0, trim_end: float = 0.0, mode: str | None = None, template: str = "standard", commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, title: str = "", style: str = "none", style_intensity: int = 65, src_filename: str = "", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", bgm: str = "off", bgm_file: str = "", bgm_volume: float = 0.18, bgm_clip_start: float | None = None, bgm_clip_end: float | None = None, bgm_offset: float | None = None, subtitle_size: float = 1.0, subtitle_color: str = "FFFFFF", subtitle_border: float = 1.0, subtitle_border_color: str = "000000", subtitle_pos: str = "bottom", max_chars: int = 0, original_speed: bool = True, feather_opt: str = "", crop_ratio: str = "") -> None:
     """后台线程：把下载好的视频喂给 commentary-pipeline，等成片回传。
 
     复用用户现成的 process.py 整条管线（whisper 转写 → edge-tts 配音 → ffmpeg 出片），
@@ -2109,6 +2126,8 @@ def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit
                                         intro_sec=intro_sec, outro_sec=outro_sec,
                                         drama_start_sec=drama_start_sec, drama_end_sec=drama_end_sec,
                                         bgm=bgm, bgm_file=bgm_file, bgm_volume=bgm_volume,
+                                        bgm_clip_start=bgm_clip_start,
+                                        bgm_clip_end=bgm_clip_end, bgm_offset=bgm_offset,
                                         subtitle_size=subtitle_size, subtitle_color=subtitle_color,
                                         subtitle_border=subtitle_border,
                                         subtitle_border_color=subtitle_border_color,
@@ -2387,7 +2406,9 @@ def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit
             _commentary_charge_on_success(job_id)
             # 写入 BGM 状态 manifest：bgm=off 视为待配乐（draft），否则视为已成片（final）
             try:
-                _write_bgm_state(str(out), bgm=bgm or "off", volume=bgm_volume, source="render")
+                _write_bgm_state(str(out), bgm=bgm or "off", volume=bgm_volume, source="render",
+                                bgm_clip_start=bgm_clip_start, bgm_clip_end=bgm_clip_end,
+                                bgm_offset=bgm_offset)
             except Exception:
                 logger.exception("写 BGM 状态 manifest 失败：%s", out)
     except Exception as exc:  # noqa: BLE001

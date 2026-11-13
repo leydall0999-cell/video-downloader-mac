@@ -2943,6 +2943,19 @@
                      aria-label="配乐音量" />
               <span class="com-tl-music-val" id="comTlMusicVolVal">18%</span>
             </div>
+            <div class="com-tl-music-edit" id="comTlMusicEdit" hidden>
+              <div class="com-tl-music-edit-row">
+                <span class="com-tl-music-lab">裁剪</span>
+                <label class="com-inline-num">起<input type="number" id="comTlMusicClipStart" min="0" step="0.5" value="0" />s</label>
+                <label class="com-inline-num">止<input type="number" id="comTlMusicClipEnd" min="0" step="0.5" value="0" />s</label>
+                <span class="com-tl-music-edit-tip" id="comTlMusicClipTip"></span>
+              </div>
+              <div class="com-tl-music-edit-row">
+                <span class="com-tl-music-lab">放置点</span>
+                <label class="com-inline-num">从<input type="number" id="comTlMusicOffset" min="0" step="1" value="0" />s 起</label>
+                <span class="com-tl-music-edit-tip">成片播到该秒才开始响（0=片头起）</span>
+              </div>
+            </div>
             <div class="com-tl-music-acts">
               <button type="button" class="btn btn-sm btn-secondary" id="comTlMusicAudition" title="试听所选配乐">▶ 试听</button>
               <button type="button" class="btn btn-sm btn-secondary" id="comTlMusicApply" hidden

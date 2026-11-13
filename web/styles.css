@@ -6498,6 +6498,18 @@ html.com-theater { overflow: hidden; }
 .com-tl-music-hint { margin-top: .4rem; color: #6B7280; font-size: .62rem; line-height: 1.45; }
 .com-tl-music-hint.is-err { color: #FCA5A5; }
 .com-tl-music-hint.is-ok { color: #6EE7B7; }
+.com-tl-music-edit { margin: .25rem 0 .5rem; padding: .4rem .5rem; background: #24272E; border: 1px solid #33373F; border-radius: 6px; }
+.com-tl-music-edit[hidden] { display: none; }
+.com-tl-music-edit-row { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; margin-bottom: .3rem; }
+.com-tl-music-edit-row:last-child { margin-bottom: 0; }
+.com-tl-music-edit-row .com-inline-num { display: inline-flex; align-items: center; gap: .15rem; color: #9CA3AF; font-size: .62rem; }
+.com-tl-music-edit-row .com-inline-num input[type="number"] {
+  width: 3.2rem; min-height: 24px; padding: 0 .25rem; font-size: .66rem;
+  background: #1B1E24; border: 1px solid #3A3D45; border-radius: 4px; color: #E5E7EB;
+}
+.com-tl-music-edit-tip { flex: 1 1 auto; color: #9CA3AF; font-size: .6rem; }
+/* 右栏背景音乐卡：每行加一个「试听」按钮（.btn-xs 是死类，这里直接覆盖 .btn 的 44px min-height） */
+.com-music-audition.btn { min-height: 26px; padding: .1rem .5rem; font-size: .68rem; line-height: 1; }
 /* 未选视频：淡出，避免「有时间轴却没内容」的误导 */
 .com-timeline.is-empty .com-tl-viewport { opacity: .4; }
 /* ---- 右栏检查器 ---- */

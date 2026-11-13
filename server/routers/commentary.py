@@ -1397,7 +1397,8 @@ def render_script(job_id: str, vertical: bool = app.Form(False), voice: str = ap
 
 
 def _run_remux_bgm(remux_id: str, output_path: str, bgm: str, bgm_file: str,
-                   bgm_volume: float, bgm_clip_start=None, bgm_clip_end=None) -> None:
+                   bgm_volume: float, bgm_clip_start=None, bgm_clip_end=None,
+                   bgm_offset=None) -> None:
     """后台轻量换/加/移除 BGM：复用 _commentary_run 的同款子进程机制跑 process.py remux-bgm。
 
     不重渲成片，只跑 amix（秒级），成品就地替换（build 时已存无音乐 sidecar）。
@@ -1430,6 +1431,8 @@ def _run_remux_bgm(remux_id: str, output_path: str, bgm: str, bgm_file: str,
             args += ["--bgm-clip-start", str(float(bgm_clip_start))]
         if bgm_clip_end is not None:
             args += ["--bgm-clip-end", str(float(bgm_clip_end))]
+        if bgm_offset is not None:
+            args += ["--bgm-offset", str(float(bgm_offset))]
         run_env = app.COMMENTARY_RT.env()
         with app._commentary_lock:
             app.commentary_jobs.setdefault(remux_id, {})["status"] = "remuxing"
@@ -1456,7 +1459,9 @@ def _run_remux_bgm(remux_id: str, output_path: str, bgm: str, bgm_file: str,
         # 写 BGM 状态 manifest：bgm=off 视为"已移除配乐"=已成片(无配乐版)，bgm!=off 视为"已加配乐"=已成片
         # 即只要走过 remux 流程，无论 on/off 都算 final（用户主动确认过配乐决策）
         try:
-            app._write_bgm_state(output_path, bgm=bgm, volume=bgm_volume, source="remux")
+            app._write_bgm_state(output_path, bgm=bgm, volume=bgm_volume, source="remux",
+                                bgm_clip_start=bgm_clip_start, bgm_clip_end=bgm_clip_end,
+                                bgm_offset=bgm_offset)
         except Exception:
             app.logger.exception("写 remux BGM manifest 失败：%s", output_path)
     except Exception as exc:  # noqa: BLE001
@@ -1471,7 +1476,8 @@ def _run_remux_bgm(remux_id: str, output_path: str, bgm: str, bgm_file: str,
 def remux_bgm(cid: str, bgm: str = app.Form("off"), bgm_file: str = app.Form(""),
              bgm_volume: float = app.Form(0.18),
              bgm_clip_start: float = app.Form(None),
-             bgm_clip_end: float = app.Form(None)) -> dict:
+             bgm_clip_end: float = app.Form(None),
+             bgm_offset: float = app.Form(None)) -> dict:
     """渲染后单独换/加/移除 BGM（轻量 amix，不重渲成片）。
 
     用成片文件 id（与列表/下载/删除接口同款 cid）定位成片，避免依赖内存中的
@@ -1500,7 +1506,7 @@ def remux_bgm(cid: str, bgm: str = app.Form("off"), bgm_file: str = app.Form("")
                                           "progress": [], "parent_render_job": "", "logs": [],
                                           "remuxed_bgm": ""}
     app.executor.submit(_run_remux_bgm, remux_id, output_path, bgm, bgm_file,
-                         bgm_volume, bgm_clip_start, bgm_clip_end)
+                         bgm_volume, bgm_clip_start, bgm_clip_end, bgm_offset)
     return {"job_id": remux_id, "status": "remuxing", "render_job": cid}
 
 
