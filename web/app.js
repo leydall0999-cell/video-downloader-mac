@@ -11800,17 +11800,36 @@ el.dwVidPlayer.hidden = true;
     } catch (_) { /* 拉不到就维持现状 */ }
   };
 
-  /** 画幅选择：auto（跟视频走，默认）/ landscape（横屏）/ vertical（竖屏 9:16）。 */
+  /** 读取「自定义比例」输入框（仅当选中「自定义比例…」且 宽/高 均合法时返回 {w,h}）。 */
+  const comCustomRatio = () => {
+    const block = document.querySelector('[data-com-select="comAspect"]');
+    if (!block) return null;
+    const elr = block.querySelector('input[name="comAspect"]:checked');
+    if (!elr || elr.value !== 'custom') return null;
+    const w = parseInt((block.querySelector('.com-cr-w') || {}).value, 10);
+    const h = parseInt((block.querySelector('.com-cr-h') || {}).value, 10);
+    if (!(w > 0) || !(h > 0)) return null;
+    return { w, h };
+  };
+
+  /** 画幅选择：auto（跟视频走，默认）/ 预设 16:9/4:3/1:1/9:16 / 自定义 W:H。
+   *  选中「自定义比例…」且 宽:高 合法时返回 "w:h" 原样下发；否则回退 auto。 */
   const comGetAspect = () => {
     const aspectEl = document.querySelector('input[name="comAspect"]:checked');
-    return aspectEl ? aspectEl.value : 'auto';
+    const v = aspectEl ? aspectEl.value : 'auto';
+    if (v === 'custom') {
+      const cr = comCustomRatio();
+      return cr ? `${cr.w}:${cr.h}` : 'auto';
+    }
+    return v;
   };
 
   /** 把画幅选择解析成 vertical 布尔值，仅用于兼容旧后端/旧脚本（它们只认 vertical 开关）。
    *  新后端按 crop_ratio 字段（comGetOptions 下发）做居中 cover-crop，不再依赖本函数。
-   *  只有显式选「竖屏 9:16」才算竖屏；其余（auto/16:9/4:3/1:1）一律横屏基线，避免旧逻辑
-   *  在「auto+竖屏素材」时偷偷把画幅改成 9:16（auto 的新语义是「跟视频走、不裁切」）。 */
+   *  显式选「竖屏 9:16」才算竖屏；自定义比例按 高>宽 判定；其余一律横屏基线。 */
   const resolveVertical = () => {
+    const cr = comCustomRatio();
+    if (cr) return cr.h > cr.w;
     return comGetAspect() === '9:16';
   };
 
@@ -13631,6 +13650,8 @@ el.dwVidPlayer.hidden = true;
     const v = el.comPreview;
     if (v && v.videoWidth > 0 && v.videoHeight > 0) return v.videoWidth / v.videoHeight;
     // 无片/未就绪：跟「画幅」预设返回目标比例，让用户提前在舞台看到成片画幅。
+    const _cr = comCustomRatio();
+    if (_cr) return _cr.w / _cr.h;          // 自定义比例：实时跟输入框
     switch (comGetAspect()) {
       case '9:16': return 9 / 16;
       case '1:1':  return 1;
@@ -16385,7 +16406,8 @@ el.dwVidPlayer.hidden = true;
       hide: '.com-opt-row',
       // 2026-11-11：由「自动/横屏/竖屏」扩展为比例预设。成片按选中的比例居中 cover-crop 原片。
       // auto＝不裁切、跟视频原比例走；其余四项强制目标比例（去黑边 / 凑竖屏发布等场景）。
-      options: [['auto', '自动（跟视频走）'], ['16:9', '横屏 16:9'], ['4:3', '4:3 传统屏'], ['1:1', '方形 1:1'], ['9:16', '竖屏 9:16']],
+      // 2026-11-13：追加「自定义比例…」，选中后露出 宽:高 输入框，支持任意 W:H 手动画幅。
+      options: [['auto', '自动（跟视频走）'], ['16:9', '横屏 16:9'], ['4:3', '4:3 传统屏'], ['1:1', '方形 1:1'], ['9:16', '竖屏 9:16'], ['custom', '自定义比例…']],
     },
     comStyle: {
       kind: 'radio',
@@ -16662,6 +16684,43 @@ el.dwVidPlayer.hidden = true;
   };
 
   document.querySelectorAll('[data-com-select]').forEach(initComSelect);
+  // ---- 画幅「自定义比例」输入框（2026-11-13）：选中「自定义比例…」时露出 宽:高 ----
+  (function initComCustomRatio() {
+    const block = document.querySelector('[data-com-select="comAspect"]');
+    if (!block) return;
+    const wrap = block.querySelector('.com-mode-dropdown');
+    if (!wrap) return;
+    const custom = document.createElement('div');
+    custom.className = 'com-custom-ratio';
+    custom.style.cssText = 'display:none;margin-top:6px;align-items:center;gap:6px;font-size:12px;color:#8a8f99;';
+    custom.innerHTML =
+      '自定义 <input type="number" min="1" max="9999" step="1" class="com-cr-w" ' +
+      'style="width:56px;height:22px;text-align:center;box-sizing:border-box;"> : ' +
+      '<input type="number" min="1" max="9999" step="1" class="com-cr-h" ' +
+      'style="width:56px;height:22px;text-align:center;box-sizing:border-box;"> ' +
+      '<span class="com-cr-hint">宽:高，按原片居中裁切</span>';
+    wrap.insertAdjacentElement('afterend', custom);
+    const wEl = custom.querySelector('.com-cr-w');
+    const hEl = custom.querySelector('.com-cr-h');
+    const isCustom = () => (document.querySelector('input[name="comAspect"]:checked') || {}).value === 'custom';
+    const resync = () => {
+      comSyncStageSize();
+      try { comSyncSplitHandle(); } catch (e) {}
+    };
+    const toggle = () => {
+      const on = isCustom();
+      custom.style.display = on ? 'flex' : 'none';
+      if (on) resync();
+    };
+    block.addEventListener('change', (e) => {
+      if (e.target && e.target.name === 'comAspect') toggle();
+    });
+    [wEl, hEl].forEach((inp) => {
+      if (!inp) return;
+      inp.addEventListener('input', () => { if (isCustom()) resync(); });
+    });
+    toggle();
+  })();
   // 初始化后按当前「解说类型」把不该参与的下拉灰掉
   applyComSelectEnabled();
 
