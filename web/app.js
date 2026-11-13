@@ -24617,6 +24617,12 @@ el.dwVidPlayer.hidden = true;
         label: '已解决',
         note: 'yt-dlp 已内置好看视频解析，重新粘贴链接即可',
       },
+      {
+        hosts: ['lespark.us'],
+        since: '2026-11-13',
+        label: '已解决',
+        note: '1.1.22 新增浏览器兜底解析，升级后重新粘贴链接即可',
+      },
     ].map((r) => ({ ...r, sinceTs: new Date(r.since + 'T00:00:00').getTime() / 1000 }));
     // 本地零点：不能用 Date.parse(since)（走 UTC，比本地晚 8 小时，会把修复当天
     // 凌晨的需求误判成修复前）
