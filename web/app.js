@@ -11828,6 +11828,13 @@ el.dwVidPlayer.hidden = true;
   /** 画幅规格 + 指纹扰动后缀：在基础比例后拼接 !rand/!noise/!filter/!speed。
    *  仅当「降低重复检测」开关打开时附加；手动噪点/滤镜/变速由滑块控制，非默认关闭。
    *  基础比例本身仍由 comGetAspect 返回（舞台比例 / 竖屏判定不受影响）。 */
+  // 用户上传的 logo（base64，不含 data: 前缀），由 comRandWmLogo 的 change 事件写入。
+  let comRandWmLogoB64 = '';
+  // 把含中文的 JSON 安全 base64（与后端 base64.b64decode + json.loads 对齐，UTF-8）。
+  const comB64EncodeUnicode = (str) => {
+    try { return btoa(unescape(encodeURIComponent(str))); }
+    catch (e) { return ''; }
+  };
   const comGetCropSpec = () => {
     const base = comGetAspect();
     const onEl = document.getElementById('comRandOn');
@@ -11848,6 +11855,20 @@ el.dwVidPlayer.hidden = true;
     if (filter > 0) suffix += `!filter=${filter.toFixed(2)}`;
     if (Math.abs(speed - 1.0) > 0.001) suffix += `!speed=${speed.toFixed(3)}`;
     if (Math.abs(pitch) > 0.001) suffix += `!pitch=${pitch.toFixed(2)}`;
+    // 水印：仅当用户勾选「叠加水印」时构造 wmcfg（后端：有文字→渲染文字；有 logo→用 logo；都无→静态默认）
+    const wmOnEl = document.getElementById('comRandWmOn');
+    if (wmOnEl && wmOnEl.checked) {
+      const wmTextEl = document.getElementById('comRandWmText');
+      const wmPosEl = document.getElementById('comRandWmPos');
+      const wmOpEl = document.getElementById('comRandWmOp');
+      const wmText = wmTextEl ? (wmTextEl.value || '').trim() : '';
+      const wmPos = (wmPosEl && wmPosEl.value) ? wmPosEl.value : 'br';
+      const wmOp = wmOpEl ? (parseFloat(wmOpEl.value) || 0.35) : 0.35;
+      const wmCfg = { t: wmText, pos: wmPos, op: wmOp };
+      if (comRandWmLogoB64) wmCfg.logo = comRandWmLogoB64;
+      const wmB64 = comB64EncodeUnicode(JSON.stringify(wmCfg));
+      if (wmB64) suffix += `!wmcfg=${wmB64}`;
+    }
     return base + suffix;
   };
 
@@ -16779,6 +16800,28 @@ el.dwVidPlayer.hidden = true;
       '<div style="margin-bottom:6px;">' +
       '<div style="display:flex;justify-content:space-between;font-size:12px;color:#8a8f99;"><span>音频变调（半音）</span><span id="comRandPitchVal">0.30</span></div>' +
       '<input type="range" id="comRandPitch" min="0" max="0.5" step="0.05" value="0.3" style="width:100%;"></div>' +
+      '<hr style="border:none;border-top:1px dashed #2a2f3a;margin:10px 0;">' +
+      '<div style="font-size:12px;color:#8a8f99;margin-bottom:4px;">水印（防盗 + 改指纹，可选）</div>' +
+      '<label class="com-rand-row" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#c7ccd6;cursor:pointer;margin-bottom:6px;">' +
+      '<input type="checkbox" id="comRandWmOn"> 叠加水印</label>' +
+      '<div id="comRandWmAdv" style="display:none;margin-bottom:4px;">' +
+      '<div style="margin-bottom:6px;">' +
+      '<div style="font-size:12px;color:#8a8f99;margin-bottom:3px;">水印文字（留空则用默认 logo）</div>' +
+      '<input type="text" id="comRandWmText" placeholder="如：我的频道" style="width:100%;box-sizing:border-box;background:#1b1f2a;border:1px solid #2a2f3a;color:#c7ccd6;border-radius:4px;padding:4px 6px;font-size:12px;"></div>' +
+      '<div style="margin-bottom:6px;">' +
+      '<div style="font-size:12px;color:#8a8f99;margin-bottom:3px;">上传 logo 图片（png/jpg，可选）</div>' +
+      '<input type="file" id="comRandWmLogo" accept="image/*" style="width:100%;font-size:11px;color:#8a8f99;">' +
+      '<div id="comRandWmLogoName" style="font-size:11px;color:#6b7280;margin-top:2px;"></div></div>' +
+      '<div style="display:flex;gap:8px;margin-bottom:4px;">' +
+      '<div style="flex:1;">' +
+      '<div style="font-size:12px;color:#8a8f99;margin-bottom:3px;">位置</div>' +
+      '<select id="comRandWmPos" style="width:100%;background:#1b1f2a;border:1px solid #2a2f3a;color:#c7ccd6;border-radius:4px;padding:3px;font-size:12px;">' +
+      '<option value="br">右下</option><option value="bl">左下</option><option value="tr">右上</option><option value="tl">左上</option><option value="tile">平铺</option></select></div>' +
+      '<div style="flex:1;">' +
+      '<div style="font-size:12px;color:#8a8f99;margin-bottom:3px;">不透明度 <span id="comRandWmOpVal">0.35</span></div>' +
+      '<input type="range" id="comRandWmOp" min="0.1" max="0.8" step="0.05" value="0.35" style="width:100%;"></div>' +
+      '</div></div>' +
+      '</div>' +
       '<div style="font-size:11px;color:#6b7280;line-height:1.45;">改分辨率/取景/编码/metadata/音频让平台难判搬运。' +
       '音频变调 0.05~0.5 半音内几乎听不出（语速不变），却打在平台最狠的音频指纹上；加噪点、色彩滤镜、变调均随包可用，无需完整版 ffmpeg。</div>' +
       '</div>';
@@ -16793,16 +16836,40 @@ el.dwVidPlayer.hidden = true;
     const filterVal = panel.querySelector('#comRandFilterVal');
     const speedVal = panel.querySelector('#comRandSpeedVal');
     const pitchVal = panel.querySelector('#comRandPitchVal');
+    const wmOnEl = panel.querySelector('#comRandWmOn');
+    const wmAdv = panel.querySelector('#comRandWmAdv');
+    const wmLogoEl = panel.querySelector('#comRandWmLogo');
+    const wmLogoName = panel.querySelector('#comRandWmLogoName');
+    const wmOpEl = panel.querySelector('#comRandWmOp');
+    const wmOpVal = panel.querySelector('#comRandWmOpVal');
     const refresh = () => {
       if (noiseVal) noiseVal.textContent = noiseEl ? noiseEl.value : '0';
       if (filterVal) filterVal.textContent = (filterEl ? parseFloat(filterEl.value) : 0).toFixed(2);
       if (speedVal) speedVal.textContent = (speedEl ? parseFloat(speedEl.value) : 1).toFixed(2) + '×';
       if (pitchVal) pitchVal.textContent = (pitchEl ? parseFloat(pitchEl.value) : 0).toFixed(2);
+      if (wmOpVal) wmOpVal.textContent = (wmOpEl ? parseFloat(wmOpEl.value) : 0.35).toFixed(2);
     };
     if (onEl) onEl.addEventListener('change', () => {
       if (adv) adv.style.display = onEl.checked ? 'block' : 'none';
     });
-    [noiseEl, filterEl, speedEl, pitchEl].forEach((el) => { if (el) el.addEventListener('input', refresh); });
+    if (wmOnEl) wmOnEl.addEventListener('change', () => {
+      if (wmAdv) wmAdv.style.display = wmOnEl.checked ? 'block' : 'none';
+    });
+    // logo 上传 → 读成 base64（去掉 data: 前缀）写入 comRandWmLogoB64
+    if (wmLogoEl) wmLogoEl.addEventListener('change', () => {
+      const f = wmLogoEl.files && wmLogoEl.files[0];
+      if (!f) { comRandWmLogoB64 = ''; if (wmLogoName) wmLogoName.textContent = ''; return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const d = String(reader.result || '');
+        const comma = d.indexOf(',');
+        comRandWmLogoB64 = comma >= 0 ? d.slice(comma + 1) : d;
+        if (wmLogoName) wmLogoName.textContent = '已选：' + f.name;
+      };
+      reader.onerror = () => { comRandWmLogoB64 = ''; if (wmLogoName) wmLogoName.textContent = '读取失败'; };
+      reader.readAsDataURL(f);
+    });
+    [noiseEl, filterEl, speedEl, pitchEl, wmOpEl].forEach((el) => { if (el) el.addEventListener('input', refresh); });
     refresh();
   })();
   // 初始化后按当前「解说类型」把不该参与的下拉灰掉
