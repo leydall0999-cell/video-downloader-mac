@@ -157,6 +157,18 @@ _LOCK = threading.RLock()   # 可重入：resolve() 内部会再调 is_logged_in
 _PROC = {"proc": None}
 # 附加启动参数（诊断/实验用，例如 ["--headless=new"]；正常运行为空）
 _EXTRA_FLAGS: list[str] = []
+# 实际拉起的浏览器路径，由 _ensure_mode 按模式动态设定：
+#   · headless 解析 + 内嵌 chrome-headless-shell 可用 → 用内嵌（零安装、不碰用户 Chrome.app）
+#   · headless 解析 + 无内嵌 → 用系统 Chrome 带 --headless=new
+#   · 有头登录（扫码）→ 必须用系统 Chrome（headless-shell 无窗口，扫码页看不见）
+_ENGINE_BIN = CHROME  # 默认与 CHROME 一致，避免未初始化时装 None
+
+# 空闲回收：抖音解析用的无头实例，在「没有进行中任务」且「空闲超过此秒数」后自动关闭，
+# 避免常驻的后台 Chrome 进程让 macOS 误以为 Chrome 已在运行、从而绑架用户点图标开 Chrome。
+_IDLE_TIMEOUT = float(os.environ.get("VDL_DOUYIN_IDLE_TIMEOUT", "60"))
+_LAST_ACTIVE = [time.time()]
+_ACTIVE_TASKS = [0]
+_WDOG = {"thread": None}
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +398,7 @@ def launch_chrome(open_url: str | None = None, visible: bool = False) -> subproc
         _kill_chrome()
     os.makedirs(PROFILE, exist_ok=True)
     args = [
-        CHROME, "--remote-debugging-port=%d" % PORT,
+        _ENGINE_BIN, "--remote-debugging-port=%d" % PORT,
         "--user-data-dir=%s" % PROFILE, "--no-first-run",
         "--no-default-browser-check", "--no-sandbox",
         "--disable-dev-shm-usage", "--disable-gpu",
@@ -413,8 +425,10 @@ def launch_chrome(open_url: str | None = None, visible: bool = False) -> subproc
                 _restore_cookie_snapshot()
             except Exception:
                 pass
-            if not visible and "--headless=new" not in _EXTRA_FLAGS:
+            if not visible and "--headless=new" not in _EXTRA_FLAGS and \
+                    "chrome-headless-shell" not in os.path.basename(_ENGINE_BIN):
                 # 有头 + 静默：起来就在屏幕左沿待着，别在用户眼前弹窗
+                # （headless-shell 无窗口，跳过窗口定位，否则 CDP setWindowBounds 报错）
                 try:
                     _set_window_visible(False)
                 except Exception:
@@ -712,9 +726,27 @@ def _ensure_mode(headless: bool) -> None:
     """确保 Chrome 实例形态正确：解析=headless（无窗口）/ 登录=有头（看得见二维码）。
 
     形态不符时先落 Cookie 快照再重启（抖音登录 Cookie 是会话级的，关了就没）。
+
+    🔴 2026-11-13 引擎与 headless 参数适配：
+      · 内嵌 chrome-headless-shell 本身就是无头二进制，**不能**再接 `--headless=new`
+        （会导致启动失败、进而 fallback 到系统 Chrome 常驻 → 绑架用户 Chrome 图标）。
+        故 headless + shell 可用时，只传 UA 伪装，不传 --headless=new。
+      · 有头登录必须用系统真实 Chrome（headless-shell 无窗口，二维码看不见）。
     """
-    # 无头形态必须同时伪装 UA（见 _real_ua 注释：带 HeadlessChrome 会被抖音判死）
-    want = ["--headless=new", "--user-agent=" + _real_ua()] if headless else []
+    global _ENGINE_BIN
+    shell = _bundled_chromium()
+    if headless and shell:
+        # 内嵌 headless-shell：无头、零安装、不碰用户 Chrome.app
+        _ENGINE_BIN = shell
+        want = ["--user-agent=" + _real_ua()]
+    elif headless:
+        # 无内嵌，退回系统 Chrome + 新无头模式
+        _ENGINE_BIN = CHROME
+        want = ["--headless=new", "--user-agent=" + _real_ua()]
+    else:
+        # 有头扫码：必须用系统 Chrome（headless-shell 无窗口）
+        _ENGINE_BIN = CHROME
+        want = []
     cur = _instance_is_headless()
     if cur is not None and cur == headless and _page_targets():
         _EXTRA_FLAGS[:] = want
@@ -727,6 +759,39 @@ def _ensure_mode(headless: bool) -> None:
         _kill_chrome()
     _EXTRA_FLAGS[:] = want
     launch_chrome(visible=not headless)
+
+
+def _mark_active() -> None:
+    """记录一次活跃，并懒启动空闲回收看门狗。"""
+    _LAST_ACTIVE[0] = time.time()
+    _start_watchdog()
+
+
+def _start_watchdog() -> None:
+    """后台线程：抖音解析用的无头实例空闲超过 _IDLE_TIMEOUT 秒后自动关闭。
+
+    🔴 2026-11-13 根治：解析 / 探测完成后不再常驻后台 Chrome（否则 macOS 单实例
+    激活会让用户点图标只激活这个无窗口实例 → 「Chrome 打不开」）。连续解析不关，
+    闲置达到阈值即回收。有头登录实例（visible）不回收，由用户显式关闭 / App 退出清理。
+    """
+    if _WDOG["thread"] is not None and _WDOG["thread"].is_alive():
+        return
+
+    def _loop():
+        while True:
+            time.sleep(10)
+            try:
+                # 仅在没有进行中任务、且当前实例确为无头（解析态）时回收
+                if _ACTIVE_TASKS[0] == 0 and _chrome_running():
+                    if _instance_is_headless() and (time.time() - _LAST_ACTIVE[0] > _IDLE_TIMEOUT):
+                        _log("抖音引擎空闲 %.0fs，自动回收无头实例" % (time.time() - _LAST_ACTIVE[0]))
+                        _kill_chrome()
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_loop, daemon=True)
+    t.start()
+    _WDOG["thread"] = t
 
 
 def _create_target(url: str, background: bool = False) -> str:
@@ -825,28 +890,30 @@ def _has_login_cookie(cookies) -> bool:
     return False
 
 
-def _is_logged_in_unlocked() -> bool:
+def _snapshot_has_login() -> bool:
+    """直接读落盘 Cookie 快照判断是否已登录，**不启动 Chrome**。
+
+    🔴 2026-11-13 根治「视频工坊把用户 Chrome 绑架得打不开」：
+    原来本函数一进来就 `launch_chrome()` 去探测登录态，前端 `douyin_login_status`
+    轮询每次都会把本 App 拉起的系统 Chrome（无头 / 屏幕外）常驻在后台。macOS 单
+    实例激活机制下，用户点 Dock 上的 Chrome 图标只会激活这个无窗口实例 → 表现为
+    「Chrome 打不开」。登录态快照本就在解析 / 扫码成功时落盘（`_COOKIE_SNAPSHOT`），
+    直接读文件即足以判定，完全无需为「探测」拉起一个常驻浏览器。
+    """
+    if not os.path.exists(_COOKIE_SNAPSHOT):
+        return False
     try:
-        launch_chrome()
+        with open(_COOKIE_SNAPSHOT, encoding="utf-8") as f:
+            ck = (json.load(f) or {}).get("cookies") or []
     except Exception:
         return False
-    cookies = _storage_get_cookies()
-    if _has_login_cookie(cookies):
-        # 登录态一出现就落快照（会话 Cookie 退出即失，见 _COOKIE_SNAPSHOT 说明）
-        try:
-            _save_cookie_snapshot(cookies)
-        except Exception:
-            pass
-        return True
-    # 🔴 Chrome 可能是上一轮 / 别的进程启动的：这种路径没有走"启动后灌回快照"，
-    # 会话级登录 Cookie 就不在浏览器里（表现为快照明明有、界面却说未登录）。
-    # 这里按需补灌一次再判，把"每次用之前都得扫码"彻底断掉。
-    try:
-        if _restore_cookie_snapshot() and _has_login_cookie(_storage_get_cookies()):
-            return True
-    except Exception:
-        pass
-    return False
+    return any(c.get("name") in _LOGIN_COOKIE_SET for c in ck)
+
+
+def _is_logged_in_unlocked() -> bool:
+    # 🔴 2026-11-13 根治：只读快照，绝不启动 Chrome（详见 _snapshot_has_login）。
+    # 解析 / 扫码成功时 cookie 已落盘；未登录 / 游客态无快照即视为未登录。
+    return _snapshot_has_login()
 
 
 def login_status() -> bool:
@@ -932,13 +999,19 @@ def resolve(url: str, timeout: int = 90) -> dict:
     未登录 / 未捕获到流 → 抛 ResolveError（调用方负责转译前端文案）。
     """
     with _LOCK:
-        return _resolve_unlocked(url, timeout)
+        _ACTIVE_TASKS[0] += 1
+        _mark_active()
+        try:
+            return _resolve_unlocked(url, timeout)
+        finally:
+            _ACTIVE_TASKS[0] -= 1
+            _mark_active()
 
 
 def _resolve_unlocked(url: str, timeout: int = 90) -> dict:
     from downloader import ResolveError
 
-    if not os.path.exists(CHROME):
+    if not _bundled_chromium() and not os.path.exists(CHROME):
         raise ResolveError(
             "本地未找到 Chrome / Edge 浏览器",
             "抖音解析需要一个 Chromium 内核浏览器（Chrome 或 Edge）来捕获真实视频流"
