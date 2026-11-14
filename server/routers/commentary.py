@@ -11,6 +11,16 @@ from fastapi import APIRouter, File, Form, Request, UploadFile
 
 router = APIRouter()
 
+
+def _cloud_report(resource: str, title: str = "") -> None:
+    """功能用量补上报授权中心（让云端用量榜能看到解说被多少人用过）。"""
+    try:
+        from routers.cloud_account import report_feature_usage_cloud
+        report_feature_usage_cloud(resource, title=title)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # ---------------------------------------------------------------------------
 # 解说词「字数 vs 片段时长」预检
 #
@@ -401,6 +411,7 @@ def create_commentary(payload: app.CommentaryRequest, request: app.Request) -> d
         app.commentary_jobs[job_id] = {"status": "running", "error": "", "output_path": "", "progress": [],
                                    "steps": [], "logs": [], "src_path": src_path, "title": _title,
                                    "billing": (_pre or {}).get("billing") or {}}
+    _cloud_report("commentary", title=_title)
     app.executor.submit(app._commentary_run, job_id, src_path, payload.vertical, payload.voice or app.COMMENTARY_VOICE,
                     trim_start=payload.trim_start, trim_end=payload.trim_end,
                     mode=payload.mode, commentary_type=payload.commentary_type,
@@ -1064,6 +1075,7 @@ def create_script_only(payload: app.CommentaryRequest, request: app.Request) -> 
         app.commentary_jobs[job_id] = {"status": "running", "error": "", "output_path": "", "script_path": "",
                                    "progress": [], "src_path": src_path, "title": _title,
                                    "billing": (_pre or {}).get("billing") or {}}
+    _cloud_report("commentary", title=_title)
     app.executor.submit(app._commentary_run, job_id, src_path, payload.vertical, payload.voice or app.COMMENTARY_VOICE,
                     script_only=True, trim_start=payload.trim_start, trim_end=payload.trim_end,
                     template=getattr(payload, "template", "standard") or "standard",

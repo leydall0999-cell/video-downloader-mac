@@ -36,6 +36,15 @@ BGM_SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _BGM_LOCK = threading.RLock()
 
 
+def _cloud_report(resource: str, title: str = "") -> None:
+    """功能用量补上报授权中心（让云端用量榜能看到云端配乐曲库被多少人用过）。"""
+    try:
+        from routers.cloud_account import report_feature_usage_cloud
+        report_feature_usage_cloud(resource, title=title)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _bgm_dir() -> Path:
     """曲库落盘目录。放在应用数据目录下，启动路径不碰 TCC 保护目录。"""
     d = Path.home() / ".video-downloader" / "bgm"
@@ -188,6 +197,7 @@ def bgm_fetch(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         tmp = d / ("." + track["file"] + ".tmp")
         tmp.write_bytes(blob)
         os.replace(str(tmp), str(target))       # 原子落盘，杜绝半截文件
+    _cloud_report("bgm_cloud", track["name"])
     return {"ok": True, "cached": False, "path": str(target),
             "name": track["name"], "sha256": expected}
 

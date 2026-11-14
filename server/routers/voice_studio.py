@@ -64,6 +64,15 @@ def _not_ready() -> dict:
     return {"ok": False, "error": "未启用或未确认商用合规", "commercial_note": _COMMERCIAL_NOTE}
 
 
+def _cloud_report(resource: str, title: str = "") -> None:
+    """功能用量补上报授权中心（让云端用量榜能看到语音工作室被多少人用过）。"""
+    try:
+        from routers.cloud_account import report_feature_usage_cloud
+        report_feature_usage_cloud(resource, title=title)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @router.get("/api/voice-studio/status")
 def voice_studio_status() -> dict:
     cfg = _vsc.get_voice_studio_config()
@@ -127,6 +136,7 @@ def voice_studio_tts(req: TTSRequest, background_tasks: BackgroundTasks, request
     os.close(fd)
     Path(path).write_bytes(audio)
     background_tasks.add_task(os.unlink, path)  # 响应后清理临时文件
+    _cloud_report("voice_tts")
     return app.FileResponse(path, media_type=media, filename=f"voice_studio_tts.{ext}")
 
 
@@ -144,6 +154,7 @@ async def voice_studio_transcribe(file: app.UploadFile = app._FastAPIFile(...), 
         )
     except _vs.VoiceStudioError as e:
         return {"ok": False, "error": e.message}
+    _cloud_report("voice_transcribe")
     return {"ok": True, "text": text}
 
 

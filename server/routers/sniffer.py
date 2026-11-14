@@ -15,6 +15,16 @@ import cdp_sniffer  # noqa: E402 - 与 app.py 同级（server 目录在 sys.path
 
 router = APIRouter()
 
+
+def _cloud_report(resource: str, title: str = "") -> None:
+    """功能用量补上报授权中心（让云端用量榜能看到嗅探被多少人用过）。"""
+    try:
+        from routers.cloud_account import report_feature_usage_cloud
+        report_feature_usage_cloud(resource, title=title)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 _PNA_HEADERS = {
     "Access-Control-Allow-Private-Network": "true",
     "Access-Control-Allow-Origin": "*",
@@ -159,6 +169,7 @@ def sniffer_send(payload: dict = Body(...), response: Response = None) -> dict: 
         item = cdp_sniffer.SNIFFER.add_manual(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    _cloud_report("sniffer")
     return {"ok": True, "picked": True, "send_id": item["send_id"],
             "url": item["url"][:200]}
 
