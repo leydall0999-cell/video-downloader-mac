@@ -3077,15 +3077,19 @@
           <span class="com-fold-hint">类型 / 高光 / 画幅 / 片头片尾 / 引擎</span>
         </summary>
         <div class="com-opts" id="comOpts" data-page-node-id="ZRiiH42GFUywZFNYdV5GXS">
-      <!-- ===== 剪辑模板（2026-11-11）：两个模板二选一，默认现有解说 =====
+      <!-- ===== 剪辑模板（2026-11-11，2026-11-15 扩第三个）：三个模板三选一，默认现有解说 =====
            用通用 data-com-select 下拉机制（原生 radio 保留在 DOM，仅隐藏），
-           comGetOptions() 读 input[name="comTemplate"]:checked 收集值。 -->
+           comGetOptions() 读 input[name="comTemplate"]:checked 收集值。
+           第三个 series = 剧集深度解说：剪辑层走「知识卡隔断」（与 reconstruct 同结构，
+           卡面取剧集知识卡：人物/时代/典故/金句），文案层由 comGetOptions 映射成
+           commentary_type=series_deep；选中它时「解说类型」整组灰化（模板已决定文案规则）。 -->
       <div class="com-row com-row-template" id="comTemplateRow">
         <div class="com-cell com-cell-trigger com-cell-template" data-com-select="comTemplate">
           <div class="com-opt-title">🎞 剪辑模板</div>
           <div class="com-opt-row com-opt-row-fixed">
             <label class="com-mode-option com-mode-fixed" title="现有形态：原片按时间轴连续铺满，配上你的解说旁白"><input type="radio" name="comTemplate" value="standard" checked /><span><b>现有解说</b>（原片配旁白）</span></label>
             <label class="com-mode-option com-mode-fixed" title="重构叙事：原片拆成短论据片段，中间用原创信息卡隔断，可重排剧情顺序"><input type="radio" name="comTemplate" value="reconstruct" /><span><b>重构叙事二创</b>（原创信息卡隔断＋剧情重排）</span></label>
+            <label class="com-mode-option com-mode-fixed" title="剧集深度解说（2026-11-15）：第三种成片形态。隔断结构与重构叙事相同，但冠片卡内容取剧集知识卡——人物／时代／典故／金句，并按剧名校正人名错听；绝不剧透后续集"><input type="radio" name="comTemplate" value="series" /><span><b>剧集深度解说</b>（剧集知识卡隔断＋防剧透）</span></label>
           </div>
         </div>
       </div>
@@ -3104,16 +3108,11 @@
               <button type="button" class="com-mode-dropdown-option" data-value="normal_hl" role="option" data-page-node-id="ZGL5qLZ0JYAmIco4FRu0o0">高光部分普通解说</button>
               <button type="button" class="com-mode-dropdown-option" data-value="full_normal" role="option" data-page-node-id="oEDxixs1yh3Maf7jSM0GKS">全片普通解说</button>
               <button type="button" class="com-mode-dropdown-option" data-value="full_deep" role="option" data-page-node-id="gupVcOduaCl7bsSaHZdvUm">全片深入解说</button>
-              <!-- 第三个独立解说模块（2026-11-15）：与上面两族隔开，单独成组。
-                   走独立 family=series / 独立写作规则 / 剧集知识卡，不复用前两族任何规则。 -->
-              <div class="com-mode-dropdown-sep" aria-hidden="true" style="height:1px;background:currentColor;opacity:.14;margin:.35rem .45rem .2rem"></div>
-              <button type="button" class="com-mode-dropdown-option" data-value="series_deep" role="option" title="第三个独立解说模块：按剧名检索人物/时代/典故，校正人名错听，绝不剧透后续集；按全片渲染">剧集深度解说</button>
             </div>
             <input type="radio" name="comType" value="deep_hl" checked hidden data-page-node-id="KvLz5dxG7HxPRTxADbRYzr" />
             <input type="radio" name="comType" value="normal_hl" hidden data-page-node-id="wFtklL9jgsPBJIT29551Xq" />
             <input type="radio" name="comType" value="full_normal" hidden data-page-node-id="azLgfaaJOXzqBOXKnXjpH3" />
             <input type="radio" name="comType" value="full_deep" hidden data-page-node-id="fiY01RFurFBINpPvdmM05q" />
-            <input type="radio" name="comType" value="series_deep" hidden />
           </div>
         </div>
         <div class="com-cell com-cell-trigger" data-com-select="comHlSource" data-page-node-id="IkvSO733uClgdH1YrJXHD7">

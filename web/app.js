@@ -11505,7 +11505,12 @@ el.dwVidPlayer.hidden = true;
       // 旧后端不认该字段（CommentaryRequest extra=ignore）会忽略，照常由 vertical 决定画幅，零破坏性。
       // 2026-11-13：comGetCropSpec 在基础比例后拼接指纹扰动后缀（!rand/!noise/!filter/!speed）。
       crop_ratio: comGetCropSpec(),
-      commentary_type: typeEl ? typeEl.value : 'deep_hl',
+      // 2026-11-15：剪辑模板选了「剧集深度解说」时，文案规则由模板决定 →
+      // commentary_type 固定发 series_deep（此时「解说类型」整组已灰化，值不可改）。
+      // template 仍原样发 'series'，后端拼 --template series 让剪辑层走知识卡隔断。
+      commentary_type: (tplEl && tplEl.value === 'series')
+        ? 'series_deep'
+        : (typeEl ? typeEl.value : 'deep_hl'),
       highlight_source: srcEl ? srcEl.value : 'ai',
       intro_highlight: !!(el.comIntroHighlight && el.comIntroHighlight.checked),
       skip_intro_outro,
@@ -16436,7 +16441,8 @@ el.dwVidPlayer.hidden = true;
       title: '剪辑模板',
       hide: '.com-opt-row-fixed',
       options: [['standard', '现有解说（原片配旁白）'],
-                ['reconstruct', '重构叙事二创（原创信息卡隔断＋剧情重排）']],
+                ['reconstruct', '重构叙事二创（原创信息卡隔断＋剧情重排）'],
+                ['series', '剧集深度解说（剧集知识卡隔断＋防剧透）']],
     },
     comHlSource: {
       kind: 'radio',
@@ -16480,16 +16486,19 @@ el.dwVidPlayer.hidden = true;
   // ---- 互斥联动：某些下拉在当前「解说类型」下根本不参与任何计算 ⇒ 置灰不可选 ----
   // 依据（2026-11-11 核对 llm_script.py 的 family/src 分支）：只有 deep_hl / normal_hl
   // 会读取 highlight_source；full_normal / full_deep 走完整转写稿，「挑高光」留着也不影响结果。
-  // 2026-11-15：第三个独立模块 series_deep 同样按全片渲染（family=series 走 _min_segments
-  // 全片密度分支），不挑高光，一并禁用；前两族的取值与文案一行未动。
+  // 2026-11-15：第三种成片形态「剧集深度解说」已迁到「剪辑模板」第三项（template=series），
+  // 它按全片密度走知识卡隔断，同样不挑高光；跟着模板状态一并禁用。
   // 因此这里只做「视觉灰化 + 不可操作」，**不改写用户原有选择**，切回高光模式即自动恢复。
   const COM_SELECT_DISABLE_RULES = {
     comHlSource: {
-      reason: '全片模式下不参与计算（只有高光模式才需要挑高光）',
+      reason: '当前模式不参与计算（只有高光模式才需要挑高光）',
       isDisabled: () => {
         const r = document.querySelector('input[name="comType"]:checked');
         const v = r ? r.getAttribute('value') : '';
-        return v === 'full_normal' || v === 'full_deep' || v === 'series_deep';
+        const t = document.querySelector('input[name="comTemplate"]:checked');
+        const tv = t ? t.getAttribute('value') : 'standard';
+        // 2026-11-15：第三模板 series 走剧集知识卡隔断、全片密度，同样不挑高光。
+        return v === 'full_normal' || v === 'full_deep' || tv === 'series';
       },
     },
     // 2026-11-11：重构叙事模板下「开头加高光」是死开关——后端 edit_ffmpeg.py:3903
@@ -16505,12 +16514,38 @@ el.dwVidPlayer.hidden = true;
     },
   };
   const comSelectControls = new Map();   // key -> { setDisabled(flag, reason) }
+  // 2026-11-15：解说类型是独立下拉（不走 data-com-select 通用机制），
+  // 选中「剧集深度解说」模板时整组灰化 —— 文案规则已由模板决定，留着可点会让人以为能改。
+  // 沿用既有约定：只做灰化 + 不可操作，不改写 radio 原值，切回其他模板即自动恢复。
+  const applyComTypeDisabled = () => {
+    if (!el.comTypeBtn) return;
+    const t = document.querySelector('input[name="comTemplate"]:checked');
+    const isSeries = !!t && t.getAttribute('value') === 'series';
+    // 视觉灰化加在外层 .com-mode-dropdown 上，复用 styles.css:3297 已有的 .is-disabled 规则；
+    // 同时禁用所有原生 radio，防键盘/辅助工具改值（与通用下拉 setDisabled 的做法一致）。
+    if (el.comTypeDropdown) el.comTypeDropdown.classList.toggle('is-disabled', isSeries);
+    el.comTypeBtn.disabled = isSeries;
+    el.comTypeBtn.setAttribute('aria-disabled', isSeries ? 'true' : 'false');
+    el.comTypeBtn.title = isSeries
+      ? '当前剪辑模板为「剧集深度解说」，文案规则由模板固定，无需再选'
+      : '';
+    if (el.comTypePanel) {
+      el.comTypePanel.parentElement
+        .querySelectorAll('input[name="comType"]')
+        .forEach((n) => { n.disabled = isSeries; });
+      if (isSeries) el.comTypePanel.hidden = true;
+    }
+    if (el.comTypeBtnLabel) {
+      el.comTypeBtnLabel.textContent = isSeries ? '由剪辑模板决定' : '解说类型';
+    }
+  };
   const applyComSelectEnabled = () => {
     Object.keys(COM_SELECT_DISABLE_RULES).forEach((key) => {
       const rule = COM_SELECT_DISABLE_RULES[key];
       const ctl = comSelectControls.get(key);
       if (ctl) ctl.setDisabled(rule.isDisabled(), rule.reason);
     });
+    applyComTypeDisabled();
   };
 
   /** 读取原生控件当前值：radio 取 checked 的 value，checkbox 返回 on/off。 */
