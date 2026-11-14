@@ -193,11 +193,15 @@ def _pick_stream(hls: list[str], mp4: list[str]) -> str:
     return mp4[0] if mp4 else ""
 
 
-def resolve(url: str, timeout: int = 55) -> dict:
+def resolve(url: str, timeout: int = 55, cookies: str = "") -> dict:
     """打开页面抓媒体流。成功返回 info dict，失败抛 RuntimeError。
 
     返回字段与 downloader 的 `_browser_fallback_info` 对齐：
       {ok, title, video_url, ext, protocol, http_headers, webpage_url}
+
+    cookies: 可选，登录态 Cookie 头（形如 ``name1=v1; name2=v2``）。注入后页面
+      发出的请求与 ``document.cookie`` 都带登录态——这是咪咕这类「必须登录才出流」
+      的 SPA 站能解析的前提（首次注入在 ``Page.navigate`` 之前完成）。
     """
     if not _enabled():
         raise RuntimeError("通用浏览器兜底已被 VDL_GENERIC_BROWSER=0 关闭")
@@ -230,7 +234,7 @@ def resolve(url: str, timeout: int = 55) -> dict:
         ws_url = tab.get("webSocketDebuggerUrl") or ""
         if not ws_url:
             raise RuntimeError("无法挂接兜底浏览器标签页")
-        got = _capture(ws_url, timeout=max(12, int(timeout)), page_url=url)
+        got = _capture(ws_url, timeout=max(12, int(timeout)), page_url=url, cookies=cookies)
         if not got.get("video_url"):
             raise RuntimeError("页面已打开，但没有捕获到音视频流（可能需要登录或该内容已下架）")
         got["elapsed"] = round(time.time() - t0, 1)
@@ -240,7 +244,53 @@ def resolve(url: str, timeout: int = 55) -> dict:
         _shutdown(proc)
 
 
-def _capture(ws_url: str, timeout: int, page_url: str) -> dict:
+def _cookie_domain(page_url: str) -> str:
+    """取根域（带前导点）作为注入 Cookie 的 domain，使其对全子域生效。"""
+    host = urllib.parse.urlparse(page_url).hostname or ""
+    if not host:
+        return ""
+    parts = host.split(".")
+    if len(parts) >= 3:
+        return "." + ".".join(parts[-2:])
+    return "." + host
+
+
+def _inject_cookies(send, cookies_header: str, page_url: str) -> None:
+    """把 ``name=v; name2=v2`` 形式的 Cookie 头逐条经 CDP 写入目标上下文。
+
+    - ``httpOnly=False``：部分站（咪咕）的取流签名 JS 会读 ``document.cookie``，
+      若设成 HttpOnly 则 JS 读不到、签名失败；兜底场景是一次性抓流，无持久化风险。
+    - ``secure`` 随 URL 协议：https 页必须 secure 才落得下。
+    """
+    try:
+        domain = _cookie_domain(page_url)
+        if not domain:
+            return
+        secure = page_url.lower().startswith("https")
+        for part in cookies_header.split(";"):
+            part = part.strip()
+            if "=" not in part:
+                continue
+            name, _, value = part.partition("=")
+            name, value = name.strip(), value.strip()
+            if not name:
+                continue
+            try:
+                send("Network.setCookie", {
+                    "name": name,
+                    "value": value,
+                    "domain": domain,
+                    "path": "/",
+                    "httpOnly": False,
+                    "secure": secure,
+                })
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _capture(ws_url: str, timeout: int, page_url: str, cookies: str = "") -> dict:
     from douyin_cdp import _WSClient
 
     ws = _WSClient(ws_url)
@@ -261,6 +311,8 @@ def _capture(ws_url: str, timeout: int, page_url: str) -> dict:
     stale = 0.0
     try:
         send("Network.enable")
+        if cookies:
+            _inject_cookies(send, cookies, page_url)
         send("Page.enable")
         send("Runtime.enable")
         send("Page.navigate", {"url": page_url})

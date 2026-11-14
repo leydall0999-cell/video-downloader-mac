@@ -1710,6 +1710,10 @@ _COOKIE_HARDENED_DOMAINS: tuple[str, ...] = (
     # 桌面端不会自动读（2026-10-21 收编时补）。
     "chrqj.com",
     "nmwchxx.com",
+    # 咪咕视频：播放地址走 WASM 加密签名网关（playurl），且必须带登录 Cookie
+    # 才会返回可播放流。加入后桌面端自动读本机浏览器咪咕 Cookie，通用浏览器
+    # 兜底（browser_resolve）在打开页面前注入登录态即可抓到明文 m3u8。
+    "miguvideo.com",
 )
 # 注意：YouTube **故意不列入** hardened —— hardened 会把 403 文案改写成
 # 「该站需要登录 Cookie」，从而盖掉 YouTube 403 真正该排查的代理/地区线索
@@ -5382,6 +5386,93 @@ def _finder_info(url: str, cookie: str = "", proxy: str = "") -> dict[str, Any]:
         "（在已登录微信的浏览器复制 channels.weixin.qq.com 的 Cookie 粘贴给运维即可）。",
         category="pending_extractor",
     )
+
+
+def _migu_info(url: str, cookie: str = "", proxy: str = "") -> dict[str, Any]:
+    """咪咕视频（miguvideo.com）：WASM 加密签名网关，必须登录态 + 真实浏览器。
+
+    取流接口 ``playurl/secret/v2`` 由前端 gateway-crypto.wasm 签名，静态抓 HTML 只有
+    加密令牌，yt-dlp 无 migu 提取器。实测（2026-11-14）：带登录 Cookie 让 WASM 在
+    浏览器里跑起来即可抓到明文 m3u8，且 **CDN 不绑来源 IP** —— 故服务端 worker
+    （ECS Playwright）可抓流并交给任意端 ffmpeg 下载，不必留在本机。
+
+    分层策略：
+    1. 服务端（VDL_INSTANCE=cloud）或有 worker 配置：走 ``_call_vps_worker("migu")``，
+       Cookie 取「用户粘贴 > 云端/本机共享池 miguvideo.com > worker 本地兜底」。
+    2. 桌面端且 worker 不可用：回退本机浏览器兜底 ``_browser_fallback_info`` 注入
+       登录态抓流（抖音 CDP 同款机制，本机已登录 Chrome 读取 Cookie）。
+    3. 全失败：透传真实原因；缺 Cookie 时归为 cookie_required 引导用户粘贴。
+    """
+    effective_cookie = (cookie or "").strip() or _pooled_cookie("miguvideo.com")
+    is_cloud = os.environ.get("VDL_INSTANCE", "").strip().lower() == "cloud"
+    has_worker = bool(
+        os.environ.get("VDL_WORKER_URL") or os.environ.get("VDL_COOKIE_REFILL_URL")
+        or os.environ.get("VDL_COOKIE_REFILL_TOKEN") or os.environ.get("VDL_COOKIE_SYNC_TOKEN")
+    )
+
+    # 1) 服务端 worker 抓流（云端强依赖；桌面端在配了 worker 时也优先用）
+    if is_cloud or has_worker:
+        try:
+            data = _call_vps_worker("migu", url, cookie=effective_cookie)
+            return {
+                "id": data.get("video_id", ""),
+                "title": data.get("title") or "咪咕视频",
+                "duration": data.get("duration"),
+                "webpage_url": data.get("webpage_url") or url,
+                "extractor_key": "MiguVideo",
+                "extractor": "migu",
+                "ext": data.get("ext") or "mp4",
+                "direct": True,
+                "url": data.get("video_url"),
+                "protocol": "https",
+                "thumbnail": data.get("thumbnail", ""),
+                "http_headers": {"User-Agent": _NE_UA, "Referer": "https://www.miguvideo.com/"},
+            }
+        except ResolveError as e:
+            _msg = str(e) + "\n" + str(getattr(e, "hint", "") or "")
+            if not effective_cookie or any(
+                k in _msg for k in ("登录态", "Cookie", "cookie", "登录")
+            ):
+                e.category = "cookie_required"
+            # 云端不能起浏览器，直接透传；桌面端继续回退本机兜底
+            if is_cloud:
+                raise
+            last_err = e
+        except Exception as e:  # noqa: BLE001
+            if is_cloud:
+                raise
+            last_err = e
+    else:
+        last_err = None
+
+    # 2) 桌面端本机浏览器兜底（注入登录态 Cookie）
+    if not is_cloud:
+        info = _browser_fallback_info(url, cookie=effective_cookie)
+        if info is not None:
+            return info
+        # 也尝试从本机浏览器自动读取咪咕 Cookie 再注入（hardened 域已放行）
+        if not effective_cookie:
+            try:
+                auto = get_browser_cookie_header(
+                    _host_of(url) or "miguvideo.com", url)
+            except Exception:
+                auto = None
+            if auto:
+                info = _browser_fallback_info(url, cookie=auto)
+                if info is not None:
+                    return info
+
+    if isinstance(last_err, ResolveError):
+        raise last_err
+    # 3) 无 worker、无浏览器兜底结果：诚实提示需要登录态
+    raise ResolveError(
+        "咪咕视频暂未能解析",
+        "咪咕播放地址需登录态 + 前端加密签名，且需可用的解析节点。\n"
+        "请在「高级选项 → Cookie」粘贴已登录咪咕网页版的 Cookie，或确认解析节点在线后重试。",
+        category="cookie_required" if not effective_cookie else "pending_extractor",
+    )
+
+
 def _yy_info(url: str, proxy: str = "") -> dict[str, Any]:
     """YY 直播（yy.com / h.yy.com）：直播流地址需 App 端签名，公开 web 接口拿不到直链。
     best-effort：尝试从播放页/公开 API 提取，失败明确告知。
@@ -5817,21 +5908,22 @@ def _sohu_download_parts(task: DownloadTask, info: dict[str, Any], base_opts: di
 class _NeedYtDlp(Exception):
     """标记该平台应交由 probe() 末尾的 yt-dlp 通用流程解析（已收录且 yt-dlp 支持）。"""
 
-def _browser_fallback_info(url: str) -> dict[str, Any] | None:
+def _browser_fallback_info(url: str, cookie: str = "") -> dict[str, Any] | None:
     """yt-dlp 完全没有提取器时，用随包无头内核抓真实媒体流（见 browser_resolve）。
 
     适用场景：页面里只有 `<video src="blob:...">`、直链要等播放器 JS 发请求才出现的
     SPA 站（需求榜里的 lespark.us 就是腾讯云 VOD 这种）。这类站静态抓 HTML 永远是空，
     yt-dlp 只会报 unsupported，唯一出路是把页面真的跑起来。
 
-    只在桌面端启用：云端实例是多用户共享进程，不能替某个请求拉起浏览器。
-    任何失败都返回 None —— 调用方会继续抛原有错误，用户看到的话术一字不变。
+    ``cookie``：可选登录态 Cookie 头，供需要登录才出流的站（咪咕）在打开页面前注入
+    浏览器会话。仅在桌面端启用：云端实例是多用户共享进程，不能替某个请求拉起浏览器，
+    那类站由 worker 侧 Playwright 承担。任何失败都返回 None，话术一字不变。
     """
     if os.environ.get("VDL_INSTANCE", "").strip().lower() == "cloud":
         return None
     try:
         import browser_resolve
-        data = browser_resolve.resolve(url, timeout=55)
+        data = browser_resolve.resolve(url, timeout=55, cookies=cookie or "")
     except Exception as exc:  # noqa: BLE001 — 兜底失败绝不影响原有报错路径
         logger.info("[probe] 浏览器兜底未成功 host=%s: %s",
                     _host_of(url), str(exc)[:160])
@@ -6077,6 +6169,10 @@ def _probe_impl(url: str, cookie: str = "", proxy: str = "") -> dict[str, Any]:
     # 微信视频号：weixin.qq.com/sph/* 短链 或 channels.weixin.qq.com 直链
     if ("weixin.qq.com" in (host or "")) or ("channels.weixin.qq.com" in (host or "")):
         return _finder_info(url, cookie=cookie, proxy=proxy)
+    # 咪咕视频：WASM 加密签名网关，必须登录态 + 真实浏览器（worker / 桌面端兜底）。
+    # 已在 platforms.py 登记为已知平台，通用浏览器兜底不会自动接管，故显式分派。
+    if "miguvideo.com" in (host or "") or (host or "").endswith(".migu.cn"):
+        return _migu_info(url, cookie=cookie, proxy=proxy)
     if "yy.com" in (host or ""):
         return _yy_info(url, proxy=proxy)
     # Disney+ Hotstar / KinoPoisk：yt-dlp 已有提取器，显式放行走末尾通用解析，

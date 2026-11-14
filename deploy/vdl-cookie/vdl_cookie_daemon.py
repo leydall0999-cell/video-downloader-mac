@@ -89,6 +89,7 @@ from cc_resolve import resolve as cc_resolve  # noqa: E402
 from weishi_resolve import resolve as weishi_resolve  # noqa: E402
 from finder_resolve import resolve as finder_resolve  # noqa: E402
 from xiaohongshu_resolve import resolve as xiaohongshu_resolve  # noqa: E402
+from migu_resolve import resolve as migu_resolve  # noqa: E402
 
 
 def _load_env_file(path: str) -> None:
@@ -157,6 +158,7 @@ _RESOLVERS = {
     "weishi": weishi_resolve,
     "finder": finder_resolve,
     "xiaohongshu": xiaohongshu_resolve,
+    "migu": migu_resolve,
 }
 
 
@@ -382,8 +384,8 @@ def do_resolve(platform, url, cookie=""):
         # 可能显著变慢（>90s），超出 Railway 限时。这里强制 85s 上限，超时杀
         # chromium 并返回干净错误，避免请求堆积在 _resolve_lock 后饿死后续请求。
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        # 仅 finder 平台透传 cookie（其余 resolver 无 cookie 参数，避免 TypeError）
-        if platform == "finder" and cookie:
+        # 仅接受 cookie 参数的平台透传（finder 微信视频号 / migu 咪咕）
+        if platform in ("finder", "migu") and cookie:
             fut = ex.submit(resolver, url, cookie=cookie)
         else:
             fut = ex.submit(resolver, url)
