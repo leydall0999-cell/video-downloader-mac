@@ -1,55 +1,82 @@
 #!/usr/bin/env python3
-"""咪咕视频（miguvideo.com）解析 —— ECS Playwright worker。
+"""咪咕视频（miguvideo.com）解析 —— ECS worker，纯 HTTP 版（无浏览器、无需登录态）。
 
-为什么必须真实浏览器 + 登录态：
-  播放页是 React SPA，取流接口
-  ``webapi.miguvideo.com/gateway/playurl/secret/v2/play/playurl`` 的请求/响应由
-  前端 ``gateway-crypto.wasm`` 签名加密；静态抓 HTML 只得到加密令牌
-  （``window.__PLAYING_INFO__[*].cdnData``），yt-dlp 无 migu 提取器。游客态不出流，
-  必须注入已登录账号 Cookie 让 WASM 在真实浏览器里跑起来。
+链路（2026-11-14 实测闭环，见当日日志）：
+  1) 从 URL 提取 contId
+  2) GET ``webapi.miguvideo.com/gateway/playurl/v3/play/playurl?contId=..``
+     带官方头 Appcode/Appid/Channel/x-up-client-channel-id → 返回明文 m3u8
+     （``body.urlInfo.url``）。**游客态（urlType=tourist）即可，不需要 Cookie**。
+     注：v2 已 404；v3 是当前有效版本。
+  3) 明文 URL 直接访问会回咪咕自定义码 **661**（缺签名），必须用咪咕自己的
+     ``mgprtcl.wasm`` 算出 ``ddCalcu`` 参数拼上去（wasmtime 在 Python 侧执行，
+     盐值 +6e7/UkVh9XuFSTC5k08Qw==、sv=10012）。
+  4) 带签名的 gslb URL 会 302 到具体 CDN 节点；跟随重定向得到最终可播 m3u8
+     （标准 #EXTM3U + ts 分片）。
 
-实测结论（2026-11-14，见当日日志）：
-  - 🔴 **CDN 不绑 IP**：从与浏览器完全不同的 IP 拉 m3u8/ts 均 200（client_ip= 只是
-    内嵌字段，CDN 不校验）→ 服务端抓流 + 任意端下载成立，不必留在本机。
-  - 🔴 ECS 机房 IP **不被风控**：headless_shell 实测跑通 WASM 签名、playurl 200、
-    m3u8/ts 全 200。headed/xvfb 反而 about:blank，不要用。
-  - 🔴 竖屏页有**间歇性 about:blank 竞态**：SPA 偶发不渲染（title 空、DOM 39 字节）。
-    用「全新 context（非持久 profile）+ 主域预热 + 检测空白自动重载 + 边等边抓」
-    收敛；不要用固定 persistent profile（累积脏状态放大竞态）。
-  - 竖屏页预加载**多个推荐视频**：第一个 playurl 对应 ``/media/<contentId>_`` 才是
-    目标，按 contentId 精确定位，避免下错片。
-  - 索引 m3u8（gslbmgspvod）body 常只是一行裸二级 URL；二级清单（hlszy/hlszte）
-    才是 ``#EXTM3U`` + ts 分片。逐个拉挑真清单。
+为什么弃用 Playwright 抓流方案：
+  竖屏页在 headless 下会 about:blank（目标页零网络请求，非跨设备跳转拦截器），
+  且 spa 取流依赖 WASM 签名网关，冷启动时序/账号频率都会造成间歇失败。
+  纯 HTTP 方案绕开全部浏览器竞态，服务端稳定、毫秒级、无账号风控。
 
-Cookie 优先级：显式传入文本 > ``/opt/vdl-worker/cookies/migu.txt``。
-支持 Netscape jar 或 ``"k1=v1; k2=v2; ..."``；无 Cookie 诚实报错。
+🔴 CDN 不绑来源 IP：同一签名 URL 从 ECS（与生成端完全不同的 IP）实测
+   HTTP 200 + 12 个 ts 分片；故服务端解析 + 任意端下载成立。
 
-对外 ``resolve(url, timeout=75, cookie="")`` 供 vdl_cookie_daemon.py 复用，
+wasm 文件固化在 ``/opt/vdl-worker/mgprtcl.wasm``
+（版本 v_20251124155500_63c16e66，29978 字节；算法底层未变，固定版本比追新版稳）。
+文件缺失时自动从咪咕补下。依赖：``wasmtime``（已装在 worker .venv）。
+
+对外 ``resolve(url, timeout=30, cookie="")`` 供 vdl_cookie_daemon.py 复用，
 返回 dict 或抛 RuntimeError，契约与 finder/lespark 一致。
 """
+import ctypes
+import json
 import os
 import re
 import sys
-import time
 import urllib.parse
 import urllib.request
 
-COOKIE_FILE = "/opt/vdl-worker/cookies/migu.txt"
-HOME = "https://www.miguvideo.com/"
-UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-)
+WASM_PATH = "/opt/vdl-worker/mgprtcl.wasm"
+WASM_VERSION = "v_20251124155500_63c16e66"
+WASM_URL = ("https://www.miguvideo.com/mgs/player/prd/"
+            + WASM_VERSION + "/dist/mgprtcl.wasm")
+SALT = "+6e7/UkVh9XuFSTC5k08Qw=="
+SV = "10012"
+CHANNEL_ID = "0132_10010001005"
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/89.0.4343.0 Safari/537.36 Edg/89.0.727.0")
 REFERER = "https://www.miguvideo.com/"
-_CDN_HOSTS = ("miguvideo.com", "cmvideo.cn")
-_CID_RE = re.compile(r"/media/(\d{8,14})_")
+COOKIE_FILE = "/opt/vdl-worker/cookies/migu.txt"
+
+_HEADERS = {
+    "User-Agent": UA,
+    "Appcode": "miguvideo_default_www",
+    "Appid": "miguvideo",
+    "Channel": "H5",
+    "x-up-client-channel-id": CHANNEL_ID,
+    "Referer": REFERER,
+}
 
 
 def _log(msg: str) -> None:
     print("[migu] " + msg, file=sys.stderr, flush=True)
 
 
-def _load_cookies(cookie_text: str = "") -> list:
+def _opener():
+    # 不读系统代理（WorkBuddy / ECS 上都可能注入 HTTP_PROXY 导致 SSL EOF）
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _vid(url: str) -> str:
+    m = re.search(r"/(?:p/(?:vertical|detail)|m/play|p/play)/([0-9a-zA-Z_]+)", url or "")
+    if m:
+        return m.group(1)
+    m = re.search(r"[?&](?:cid|contId|pid)=([0-9a-zA-Z_]+)", url or "")
+    return m.group(1) if m else ""
+
+
+def _cookie_header(cookie_text: str = "") -> str:
+    """可选：会员/1080P 内容才需要登录态；游客态公开视频不需要。"""
     raw = (cookie_text or "").strip()
     if not raw and os.path.exists(COOKIE_FILE):
         try:
@@ -58,210 +85,197 @@ def _load_cookies(cookie_text: str = "") -> list:
         except Exception:
             raw = ""
     if not raw:
-        return []
-
-    out = []
-    if raw.startswith("# Netscape") or "\t" in (raw.splitlines()[0] if raw else ""):
+        return ""
+    if "\t" in raw.splitlines()[0]:  # Netscape jar
+        pairs = []
         for line in raw.splitlines():
-            line = line.strip()
             if not line or line.startswith("#"):
                 continue
             p = line.split("\t")
-            if len(p) < 7:
-                continue
-            domain, _flag, path, secure, exp, name, value = p[:7]
-            dom = (domain or "").lstrip(".").lower()
-            if not any(dom == h or dom.endswith("." + h) for h in ("miguvideo.com", "cmvideo.cn")):
-                continue
-            item = {"name": name, "value": value, "domain": "." + dom,
-                    "path": path or "/", "secure": str(secure).upper() == "TRUE"}
-            try:
-                e = int(exp)
-                if 0 < e < 4_000_000_000:
-                    item["expires"] = float(e)
-            except (TypeError, ValueError):
-                pass
-            out.append(item)
-        return out
-
-    for seg in raw.split(";"):
-        seg = seg.strip()
-        if "=" not in seg:
-            continue
-        k, _, v = seg.partition("=")
-        k, v = k.strip(), v.strip()
-        if k:
-            out.append({"name": k, "value": v, "domain": ".miguvideo.com",
-                        "path": "/", "secure": True})
-    return out
+            if len(p) >= 7 and ("miguvideo.com" in p[0].lower() or "cmvideo" in p[0].lower()):
+                pairs.append("%s=%s" % (p[5], p[6]))
+        return "; ".join(pairs)
+    return raw
 
 
-def _is_stream(u: str) -> bool:
-    low = u.lower()
-    if not any(h in low for h in _CDN_HOSTS):
-        return False
-    if "playurl" in low or "/gateway/" in low or "display/v3" in low:
-        return False
-    if any(x in low for x in ("cover", "poster", "avatar", "thumb", ".jpg", ".png", ".webp")):
-        return False
-    return ".m3u8" in low
+def _plain_url(vid: str, rate: int = 3, cookie: str = "") -> tuple:
+    """调 v3 播放接口，返回 (明文 m3u8 URL, 标题)。"""
+    q = urllib.parse.urlencode({
+        "contId": vid, "rateType": str(rate), "xh265": "true",
+        "chip": "mgwww", "channelId": CHANNEL_ID,
+    })
+    api = "https://webapi.miguvideo.com/gateway/playurl/v3/play/playurl?" + q
+    hdr = dict(_HEADERS)
+    ck = _cookie_header(cookie)
+    if ck:
+        hdr["Cookie"] = ck
+    req = urllib.request.Request(api, headers=hdr)
+    with _opener().open(req, timeout=20) as r:
+        d = json.loads(r.read().decode("utf-8", "ignore"))
+    body = d.get("body") or {}
+    info = body.get("urlInfo") or {}
+    plain = info.get("url") or ""
+    if not plain:
+        raise RuntimeError("咪咕播放接口未返回地址（%s / %s）；视频可能下架、需会员或仅限 App。"
+                           % (d.get("code"), d.get("message")))
+    title = ((body.get("content") or {}).get("contName")
+             or (body.get("content") or {}).get("detail") or "咪咕视频")
+    return plain, title
 
 
-def _cid(u: str) -> str:
-    m = _CID_RE.search(u)
-    return m.group(1) if m else ""
+def _ensure_wasm() -> bytes:
+    if not os.path.exists(WASM_PATH):
+        _log("wasm 缺失，从咪咕补下 " + WASM_VERSION)
+        req = urllib.request.Request(WASM_URL, headers={"User-Agent": UA})
+        with _opener().open(req, timeout=25) as r:
+            wb = r.read()
+        with open(WASM_PATH, "wb") as f:
+            f.write(wb)
+    with open(WASM_PATH, "rb") as f:
+        return f.read()
 
 
-def _fetch(u: str) -> str:
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    req = urllib.request.Request(u, headers={"User-Agent": UA, "Referer": REFERER})
-    with opener.open(req, timeout=8) as r:
-        return r.read(65536).decode("utf-8", "ignore")
+def _sign(plain: str) -> str:
+    """用咪咕 mgprtcl.wasm 计算 ddCalcu，返回带签名的 gslb URL。"""
+    from wasmtime import Engine, Store, Module, Linker
+
+    engine = Engine()
+    module = Module(engine, _ensure_wasm())
+    store = Store(engine)
+    linker = Linker(engine)
+    st = {"mem": None, "u8": None, "u32": None}
+
+    def view():
+        mem = st["mem"]
+        if mem is None:
+            return
+        ptr = mem.data_ptr(store)
+        size = mem.data_len(store)
+        addr = ctypes.addressof(ptr.contents)
+        st["u8"] = (ctypes.c_uint8 * size).from_address(addr)
+        st["u32"] = (ctypes.c_uint32 * (size // 4)).from_address(addr)
+
+    # wasm 导入函数（签名与模块声明一致：a/b 四参数，c 单参数，d 零参数）
+    def imp_a(e, t, r, n):
+        view()
+        s = 0
+        for _ in range(r):
+            s += st["u32"][(t + 4) >> 2]
+            t += 8
+        st["u32"][n >> 2] = s
+        return 0
+
+    def imp_b(e, t, r, n):
+        return None
+
+    def imp_c(e):
+        return 0
+
+    def imp_d():
+        return 1
+
+    fns = {"a": imp_a, "b": imp_b, "c": imp_c, "d": imp_d}
+    for imp in module.imports:
+        linker.define_func(imp.module, imp.name, imp.type, fns[imp.name])
+
+    inst = linker.instantiate(store, module)
+    ex = inst.exports(store)
+    st["mem"] = ex["e"]
+    view()
+
+    def s2u(s: str, off: int) -> None:
+        view()
+        b = s.encode("utf-8")
+        for i, ch in enumerate(b):
+            st["u8"][off + i] = ch
+        st["u8"][off + len(b)] = 0
+
+    def u2s(off: int) -> str:
+        view()
+        out = bytearray()
+        while st["u8"][off]:
+            out.append(st["u8"][off])
+            off += 1
+        return out.decode("utf-8", "ignore")
+
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(plain).query)
+    get = lambda k: (q.get(k) or [""])[0]
+    vals = [get("userid"), get("timestamp"), get("ProgramID"),
+            get("Channel_ID"), get("puData"), SALT]
+
+    # 新版 wasmtime 的导出函数签名是 func(store, *args)
+    def call(name, *args):
+        return ex[name](store, *args)
+
+    ptrs = [call("v", len(v) + 1) for v in vals]
+    call("v", 64)
+    t_ptr = call("v", 128)
+    w_ptr = call("v", 128)
+    for v, off in zip(vals, ptrs):
+        s2u(v, off)
+
+    S = call("n")
+    call("i", S, ptrs[2], len(vals[2]))   # ProgramID
+    call("r", S, ptrs[1], len(vals[1]))   # timestamp
+    call("q", S, ptrs[0], len(vals[0]))   # userid
+    call("k", S, 0, 0)
+    call("s", S, 0, 0)
+    call("p", S, ptrs[4], len(vals[4]))   # puData
+    call("j", S, ptrs[3], len(vals[3]))   # Channel_ID
+    call("u", S, ptrs[5], len(vals[5]), w_ptr, 128)
+
+    inter = u2s(w_ptr)
+    i_ptr = call("v", len(inter) + 1)
+    s2u(inter, i_ptr)
+    call("o", S, i_ptr, len(inter))
+    call("l", S, t_ptr, 128)
+    dd = u2s(t_ptr)
+    if not dd:
+        raise RuntimeError("咪咕 WASM 签名返回空（wasm 版本或盐值可能已更新）")
+    return plain + "&ddCalcu=" + urllib.parse.quote(dd, safe="") + "&sv=" + SV
 
 
-def _pick_playlist(candidates: list) -> str:
-    bodies = {}
-    for u in candidates[:16]:
-        try:
-            bodies[u] = _fetch(u)
-        except Exception:
-            continue
-    for u, body in bodies.items():
-        if "#EXTM3U" in body and ".ts" in body:
-            return u
-    for u, body in bodies.items():
-        m = re.search(r"https?://[^\s\"']+\.m3u8\??[^\s\"']*", body)
-        if m:
-            return m.group(0)
-        m2 = re.search(r"[^\s\"']+\.m3u8\??[^\s\"']*", body)
-        if m2:
-            return urllib.parse.urljoin(u, m2.group(0))
-    return next(iter(bodies), "")
-
-
-def _page_alive(page) -> bool:
-    """判断 SPA 是否真的渲染（about:blank 竞态检测）。"""
+def _final_url(signed: str) -> tuple:
+    """跟随 gslb 302，返回最终 200 的节点 URL；失败则退回带签名的 gslb URL。"""
     try:
-        u = page.url or ""
-        if "about:blank" in u:
-            return False
-        n = page.evaluate("() => document.documentElement.outerHTML.length")
-        return int(n or 0) > 2000
-    except Exception:
-        return False
+        req = urllib.request.Request(signed, headers={"User-Agent": UA, "Referer": REFERER})
+        with _opener().open(req, timeout=20) as r:
+            body = r.read(4096).decode("utf-8", "ignore")
+            final = r.geturl()
+        if "#EXTM3U" in body or ".ts" in body:
+            _log("GSLB -> %s" % urllib.parse.urlparse(final).netloc)
+            return final, True
+        _log("GSLB 返回非清单(%s)，退回 gslb URL" % r.status)
+    except Exception as e:  # noqa: BLE001
+        _log("GSLB 跟随失败(退回 gslb URL): %s" % str(e)[:120])
+    return signed, False
 
 
-def resolve(url: str, timeout: int = 75, cookie: str = "") -> dict:
-    from playwright.sync_api import sync_playwright
+def resolve(url: str, timeout: int = 30, cookie: str = "") -> dict:
+    vid = _vid(url)
+    if not vid:
+        raise RuntimeError("无法从链接识别咪咕视频 ID（支持 /p/vertical/<id>、/p/detail/<id>、?cid=<id>）。")
 
-    cookies = _load_cookies(cookie)
-    if not cookies:
-        raise RuntimeError(
-            "咪咕视频需要登录态才能解析，当前没有可用的咪咕 Cookie。\n"
-            "请在已登录咪咕的浏览器复制 www.miguvideo.com 的 Cookie 粘贴，"
-            "或由运维把账号 Cookie 落到 /opt/vdl-worker/cookies/migu.txt。\n"
-            "游客态咪咕只返回加密令牌，不出可播放的视频流。")
+    plain, title = _plain_url(vid, rate=3, cookie=cookie)
+    _log("contId=%s title=%s plain=%d bytes" % (vid, title[:30], len(plain)))
+    signed = _sign(plain)
+    _log("ddCalcu 已生成")
+    final, resolved = _final_url(signed)
 
-    pw = sync_playwright().start()
-    try:
-        browser = pw.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage",
-                  "--disable-blink-features=AutomationControlled",
-                  "--autoplay-policy=no-user-gesture-required", "--mute-audio",
-                  "--no-proxy-server"],
-        )
-        try:
-            # 全新 context（非持久 profile）：与本机成功探针同款，避开脏状态竞态
-            context = browser.new_context(
-                user_agent=UA, viewport={"width": 1280, "height": 800}, locale="zh-CN")
-            context.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            context.add_cookies(cookies)
-
-            # 主域预热：让 WASM / 会话就绪（直接进竖屏页偶发 about:blank）
-            try:
-                warm = context.new_page()
-                warm.goto(HOME, wait_until="domcontentloaded", timeout=25000)
-                warm.wait_for_timeout(1200)
-                warm.close()
-            except Exception as e:  # noqa: BLE001
-                _log("主域预热失败(继续): %s" % str(e)[:120])
-
-            page = context.new_page()
-            hits: list = []
-
-            def _on_response(resp):
-                try:
-                    u = resp.url or ""
-                    if _is_stream(u) and u not in hits:
-                        hits.append(u)
-                except Exception:
-                    pass
-
-            page.on("response", _on_response)
-
-            # 导航 + 空白重载重试（咪咕 SPA 偶发 about:blank）
-            for attempt in range(3):
-                try:
-                    page.goto(url, wait_until="load", timeout=30000)
-                except Exception as e:  # noqa: BLE001
-                    _log("goto 尝试%d: %s" % (attempt + 1, str(e)[:100]))
-                page.wait_for_timeout(2500)
-                if _page_alive(page) or hits:
-                    break
-                _log("第%d次 SPA 未渲染，重载" % (attempt + 1))
-                try:
-                    page.reload(wait_until="load", timeout=30000)
-                except Exception:
-                    pass
-
-            # 边等边抓：抓到目标 cid 的候选即可停，减少无效等待与限流窗口
-            wait_s = min(max(timeout - 14, 14), 24)
-            deadline = time.time() + wait_s
-            while time.time() < deadline:
-                page.wait_for_timeout(1000)
-                if len(hits) >= 3 and (time.time() - (deadline - wait_s)) > 9:
-                    break
-            _log("等待完成 alive=%s hits=%d" % (_page_alive(page), len(hits)))
-
-            try:
-                title = (page.title() or "").strip()
-            except Exception:
-                title = ""
-            if not title:
-                title = "咪咕视频"
-
-            if not hits:
-                raise RuntimeError(
-                    "页面已打开但未捕获到咪咕播放流（登录态可能已失效 / 视频需会员 / 被风控）。"
-                    "请更新咪咕 Cookie 或换一条公开视频链接重试。")
-
-            target_cid = ""
-            for u in hits:
-                c = _cid(u)
-                if c:
-                    target_cid = c
-                    break
-            scoped = [u for u in hits if (not target_cid or _cid(u) == target_cid)]
-            _log("target_cid=%s scoped=%d/%d" % (target_cid, len(scoped), len(hits)))
-
-            playlist = _pick_playlist(scoped or hits) or _pick_playlist(hits)
-            if not playlist:
-                raise RuntimeError("捕获到 m3u8 但均无法访问（签名已过期或 CDN 拒绝）。")
-
-            vid = ""
-            mv = re.search(r"/(?:p/vertical|m/play|p/play)/([0-9a-zA-Z_]+)", url or "")
-            if mv:
-                vid = mv.group(1)
-
-            return {"ok": True, "title": title, "duration": None,
-                    "video_id": vid, "video_url": playlist,
-                    "webpage_url": page.url or url, "thumbnail": "", "ext": "mp4"}
-        finally:
-            browser.close()
-    finally:
-        pw.stop()
+    return {
+        "ok": True,
+        "title": title,
+        "duration": None,
+        "video_id": vid,
+        "video_url": final,
+        "webpage_url": url,
+        "thumbnail": "",
+        "ext": "mp4",
+        "protocol": "m3u8",
+        "gslb_url": signed,          # 备用：未跟随 302 的官方调度入口
+        "gslb_resolved": resolved,
+        "http_headers": {"Referer": REFERER, "User-Agent": UA},
+    }
 
 
 if __name__ == "__main__":
@@ -270,7 +284,6 @@ if __name__ == "__main__":
     if not u:
         print("用法: python migu_resolve.py <咪咕链接> [cookie文本]", file=sys.stderr)
         sys.exit(1)
-    import json
     try:
         print(json.dumps(resolve(u, cookie=ck), ensure_ascii=False, indent=2))
     except Exception as e:  # noqa: BLE001
