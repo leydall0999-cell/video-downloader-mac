@@ -1445,6 +1445,9 @@ run_one test_douyin_gallery.py
 # 在线配乐曲库：云端清单白名单 / sha256 校验 / SSRF 防护 / 离线缓存 / 前端接线
 run_one test_bgm_cloud.py
 run_one test_commentary_audio_preview.py
+# 第三个独立解说模块（series_deep）UI 接线守卫（2026-11-15）：
+# 旧两族 4 档逐字不变、option/radio 一一对应、单独成组、comGetOptions→后端透传链完整。
+run_node test_commentary_series_ui.mjs
 
 echo ""
 echo "========================================="

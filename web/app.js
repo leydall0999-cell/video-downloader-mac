@@ -16480,6 +16480,8 @@ el.dwVidPlayer.hidden = true;
   // ---- 互斥联动：某些下拉在当前「解说类型」下根本不参与任何计算 ⇒ 置灰不可选 ----
   // 依据（2026-11-11 核对 llm_script.py 的 family/src 分支）：只有 deep_hl / normal_hl
   // 会读取 highlight_source；full_normal / full_deep 走完整转写稿，「挑高光」留着也不影响结果。
+  // 2026-11-15：第三个独立模块 series_deep 同样按全片渲染（family=series 走 _min_segments
+  // 全片密度分支），不挑高光，一并禁用；前两族的取值与文案一行未动。
   // 因此这里只做「视觉灰化 + 不可操作」，**不改写用户原有选择**，切回高光模式即自动恢复。
   const COM_SELECT_DISABLE_RULES = {
     comHlSource: {
@@ -16487,7 +16489,7 @@ el.dwVidPlayer.hidden = true;
       isDisabled: () => {
         const r = document.querySelector('input[name="comType"]:checked');
         const v = r ? r.getAttribute('value') : '';
-        return v === 'full_normal' || v === 'full_deep';
+        return v === 'full_normal' || v === 'full_deep' || v === 'series_deep';
       },
     },
     // 2026-11-11：重构叙事模板下「开头加高光」是死开关——后端 edit_ffmpeg.py:3903
