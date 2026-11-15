@@ -2669,6 +2669,8 @@
   <section id="commentaryView" class="panel" hidden aria-labelledby="comTitle" data-page-node-id="TDzRDuz09EmpVj6PSgUHsm">
     <div class="lib-head" data-page-node-id="WUjHEastNZ9atGHHijMBbD">
       <h2 id="comTitle" class="guide-title" data-page-node-id="FifVH7NXwomsJapGavOWbr">🎬 视频解说</h2>
+      <!-- 环境状态条与标题同行（2026-11-15）：原本是 .lib-head 的兄弟节点、独占一整行。 -->
+      <div id="comEnvStatus" class="com-env-status" hidden></div>
       <div class="lib-head-actions" data-page-node-id="m6bsIWQl3CYftjkG5PFFi8">
         <button type="button" class="btn btn-ghost btn-sm" id="comRefresh" data-page-node-id="4jtKVLl2yzPG0H0spLNPOb">刷新</button>
       </div>
@@ -2677,7 +2679,6 @@
     <!-- ===== v2 剪映式三栏改版（2026-09-17）：subbar(入口+历史按钮) → 左栏(正剧范围+片头片尾处理)
          / 中栏(大预览+操作条+时间轴) / 右栏(参数检查器)。所有元素 id 保持不变，功能零删减。
          改版前完整备份：web_backup_改版前_2026-09-17/（git 亦有提交可回滚） ===== -->
-    <div id="comEnvStatus" class="com-env-status" hidden></div>
 <details class="howto" data-howto="commentary">
   <summary class="howto-head"><span class="howto-ic" aria-hidden="true">💡</span><span class="howto-title">怎么用 · 视频解说</span><span class="howto-caret" aria-hidden="true">▾</span></summary>
   <div class="howto-body">
