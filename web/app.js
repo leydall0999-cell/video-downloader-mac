@@ -700,10 +700,10 @@
     comFeatherHint: $('comFeatherHint'),
     comMaxChars: $('comMaxChars'),
     comMaxCharsVal: $('comMaxCharsVal'),
-    // 成片占原片比例（retain_pct，2026-11-15）：选材范围上限，100=不裁剪
-    comRetainPct: $('comRetainPct'),
-    comRetainPctVal: $('comRetainPctVal'),
-    comRetainPctLevel: $('comRetainPctLevel'),
+    // 理想成片时长（分钟，2026-11-15）：软目标，经 render 的 crop_ratio !dur= 透传；0=跟随模板
+    comTargetMin: $('comTargetMin'),
+    comTargetMinVal: $('comTargetMinVal'),
+    comTargetMinLevel: $('comTargetMinLevel'),
     comFileInput: $('comFileInput'),
     comFileBtn: $('comFileBtn'),
     comFileStatus: $('comFileStatus'),
@@ -11487,47 +11487,44 @@ el.dwVidPlayer.hidden = true;
   // source: { taskId }（下载完成的任务）或 { fileId }（媒体库里的现成视频）
   // 读取当前选中的剪辑选项（解说类型 / 高光来源 / 开关）
   /**
-   * 成片占原片比例（2026-11-15）：读 #comRetainPct → 后端 retain_pct。
-   * 后端语义＝「保留全片时长百分比(10~100, 不填=不裁剪)」：
-   *   · 100 = 不裁剪 → 发 null，行为与现网完全一致（默认档）。
-   *   · <100 = 写稿阶段只取原片前 N% 的转写稿；渲染阶段成片计划时长超过 N% 才砍。
-   * ⚠️ 它是「上限 / 前段取材」，不会把本来很短的解说稿拉长——这条写进 UI 提示，别让用户误解。
+   * 理想成片时长（分钟，2026-11-15）：读 #comTargetMin → render 阶段 crop_ratio 的 !dur=。
+   * 这是「软目标」不是绝对时长：画面按原片时间轴连续铺满，到接近目标分钟时在最近的
+   * 剧情断点（解说段讲完处）收尾，绝不为凑时长切断剧情。
+   *   · 0 = 不启用，完全跟随剪辑模板原行为（series/reconstruct 仍是精炼二创短片）。
+   *   · >0 = 铺满模式：无解说处原片自己播；解说作为音轨/字幕叠加在原时间轴上。
+   * ⚠️ 它不写进 script-only 的 JSON body（crop_ratio 限长 32），只在 render FormData
+   *    通过 comGetCropSpec(true) 追加 !dur=<分钟> 下发；retain_pct 恒为 null，避免写稿阶段误裁剪。
    */
-  const comGetRetainPct = () => {
-    const v = el.comRetainPct ? Number(el.comRetainPct.value) : 100;
-    if (!v || v >= 100) return null;       // 默认不裁剪，不占用字段
-    return Math.min(100, Math.max(10, v)); // 后端允许 10~100
+  const comGetTargetMin = () => {
+    const v = el.comTargetMin ? Number(el.comTargetMin.value) : 0;
+    if (!v || v <= 0) return 0;            // 默认跟随模板
+    return Math.min(60, Math.max(1, Math.round(v))); // 管线侧还会在 0~240 内兜底
   };
 
-  /** 比例滑块的数值回显 + 推荐/风险提示，随 input 实时刷新；也用于初始化。 */
-  const comSyncRetainPctHint = () => {
-    if (!el.comRetainPct) return;
-    const v = Number(el.comRetainPct.value);
-    if (el.comRetainPctVal) {
-      el.comRetainPctVal.textContent = (v >= 100) ? '不裁剪' : ('前 ' + v + '%');
+  /** 分钟滑块的数值回显 + 推荐/风险提示，随 input 实时刷新；也用于初始化。 */
+  const comSyncTargetMinHint = () => {
+    if (!el.comTargetMin) return;
+    const v = Number(el.comTargetMin.value);
+    if (el.comTargetMinVal) {
+      el.comTargetMinVal.textContent = (v <= 0) ? '跟随模板' : (v + ' 分钟');
     }
     let tone = 'ok', msg = '';
-    if (v >= 100) {
+    if (v <= 0) {
       tone = 'ok';
-      msg = '默认：AI 覆盖全片自由选材。';
-    } else if (v >= 60) {
+      msg = '默认：完全跟随剪辑模板原行为。';
+    } else if (v <= 15) {
       tone = 'ok';
-      msg = '✅ 推荐 60–95%：主线完整、二创充分，审核最稳。';
-    } else if (v >= 40) {
-      tone = 'warn';
-      msg = '⚠️ 覆盖偏少：只讲前段，后半剧情会跳；适合短剧/片段。';
+      msg = '✅ 短片：画面连续铺满到接近 ' + v + ' 分钟，在剧情断点收尾。';
+    } else if (v <= 35) {
+      tone = 'ok';
+      msg = '✅ 推荐：铺满 + 剧情断点收尾，无解说处原片自己播，观感更完整。';
     } else {
-      tone = 'risk';
-      msg = '⛔ 覆盖很少：剧情不完整，更像片段剪辑，慎选。';
+      tone = 'warn';
+      msg = '⚠️ 长片：铺满画面越多越接近原片连续播放，搬运审核风险上升，请确认剧情完整性。';
     }
-    // 95~99% 与 100% 差别极小但会触发前段裁剪，单独给「接近搬运」风险提示
-    if (v >= 95 && v < 100) {
-      tone = 'risk';
-      msg = '⛔ 接近全片：解说覆盖几乎整集，搬运风险上升，建议 ≤95% 或直接用「不裁剪」。';
-    }
-    if (el.comRetainPctLevel) {
-      el.comRetainPctLevel.className = 'com-retain-level com-level-' + tone;
-      el.comRetainPctLevel.textContent = msg;
+    if (el.comTargetMinLevel) {
+      el.comTargetMinLevel.className = 'com-retain-level com-level-' + tone;
+      el.comTargetMinLevel.textContent = msg;
     }
   };
 
@@ -11594,8 +11591,9 @@ el.dwVidPlayer.hidden = true;
         ? comSubPosCustom
         : 'bottom',
       max_chars: el.comMaxChars ? Number(el.comMaxChars.value) : 0,
-      // 成片占原片比例（retain_pct）：100/默认发 null，不裁剪；<100 走前段选材+上限裁剪
-      retain_pct: comGetRetainPct(),
+      // retain_pct 恒为 null：已由「理想成片时长」软目标（render 阶段 !dur=）取代。
+      // 必须发 null——若沿用旧比例值会让写稿阶段误裁剪转写稿到前 N%，与「整集解说」诉求冲突。
+      retain_pct: null,
       // 原字幕羽化：空串＝不干预（管线走自身自动探测）；有值＝按预览调好的位置/方式/强度渲染
       feather_opt: comGetFeatherOpt(),
     };
@@ -11947,6 +11945,10 @@ el.dwVidPlayer.hidden = true;
       // 100% = 不改分辨率，不拼参数，保持老行为；80~99% = 整片等比缩小去指纹
       if (res >= 50 && res < 100) spec += `!res=${res}`;
       if (font) spec += `!font=${font}`;
+      // 理想成片时长（分钟，软目标）：>0 时铺满模式走 !dur=，管线按原片时间轴连续铺满、
+      // 到接近目标时在剧情断点收尾；0=不拼，保持模板原有行为。仅 render 阶段带（Form 无限长）。
+      const targetMin = comGetTargetMin();
+      if (targetMin > 0) spec += `!dur=${targetMin}`;
     }
     return spec;
   };
@@ -16223,8 +16225,8 @@ el.dwVidPlayer.hidden = true;
   if (el.comMaxChars && el.comMaxCharsVal) el.comMaxCharsVal.textContent = (Number(el.comMaxChars.value) === 0) ? '不限' : (Number(el.comMaxChars.value) + '字');
 
   // 成片占原片比例：拖动实时刷新「前 N% / 不裁剪」+ 推荐风险提示，并初始化回显
-  if (el.comRetainPct) el.comRetainPct.addEventListener('input', comSyncRetainPctHint);
-  comSyncRetainPctHint();
+  if (el.comTargetMin) el.comTargetMin.addEventListener('input', comSyncTargetMinHint);
+  comSyncTargetMinHint();
 
   // 来源互斥：选了下拉就清空本地文件
   el.comSource.addEventListener('change', () => {
