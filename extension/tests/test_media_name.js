@@ -73,7 +73,7 @@ globalThis.chrome = {
   },
   runtime: {
     lastError: null,
-    getManifest: () => ({ version: '1.0.57' }),
+    getManifest: () => ({ version: '1.0.58' }),
     onMessage: { addListener: (fn) => { L.message = fn; } },
     onInstalled: { addListener: () => {} }, onStartup: { addListener: () => {} },
     sendMessage: () => {}, getURL: () => '', reload: () => {},
@@ -201,7 +201,7 @@ ok(/title:\s*it\.title\s*\|\|\s*''/.test(popup), '★ popup /api/sniffer/send �
 ok(/var realName = String\(it\.title \|\| ''\)\.trim\(\);/.test(popup), '★ popup 读取 it.title 作为媒体原名');
 ok(/url\.textContent = realName \|\| it\.url;/.test(popup), '★ popup 列表原名优先于 URL 显示');
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
-eq(manifest.version, '1.0.57', '扩展版本已升到 1.0.57');
+eq(manifest.version, '1.0.58', '扩展版本已升到 1.0.58');
 
 console.log(`\n媒体原名回归测试：通过 ${passes} / 失败 ${failures}`);
 if (failures) process.exit(1);

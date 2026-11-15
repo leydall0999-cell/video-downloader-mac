@@ -697,10 +697,16 @@ try {
   });
 } catch (e) { /* 静默 */ }
 
+// 列表只依赖后台本地 store，不该等桌面端端口探测：缓存失效时 probeEndpoint 要
+// 逐端口试（每个 900ms × 2），几十秒里弹窗一片空白，用户以为「没嗅探到」。
+// 先渲染首帧，连接态等 getEndpoint 回来再补刷按钮。
+refresh();
 chrome.runtime.sendMessage({ type: 'getEndpoint' }, function (r) {
   if (chrome.runtime.lastError) return;
-  if (r && r.endpoint) state.endpoint = r.endpoint;
-  refresh();
+  if (r && r.endpoint) {
+    state.endpoint = r.endpoint;
+    ckUpdateBtns();
+  }
   refreshDesktopAuth();
 });
 

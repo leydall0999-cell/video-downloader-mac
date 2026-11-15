@@ -224,11 +224,11 @@ function updateBadge() {
   });
 }
 
-function handleCompleted(details) {
+function handleCompleted(details, early) {
   var url = details.url || '';
   var initiator = details.initiator || details.originUrl || '';
   if (shouldSkip(url, initiator)) {
-    headerMeta.delete(details.requestId);
+    if (!early) headerMeta.delete(details.requestId);
     return;
   }
   var tabId = (typeof details.tabId === 'number') ? details.tabId : -1;
@@ -260,7 +260,8 @@ function handleCompleted(details) {
 
   var picked = CORE.pickHeaders(details.responseHeaders, null);
   var meta = headerMeta.get(details.requestId) || {};
-  headerMeta.delete(details.requestId);
+  // 早捕（early）时不能删：onCompleted 还要用同一份 Cookie / Referer 补推一次
+  if (!early) headerMeta.delete(details.requestId);
 
   // mime 权威原则与桌面端一致：响应头 text/html 等错报一律过滤
   var res = store.add(tabId, {
@@ -571,6 +572,29 @@ try {
     { urls: ['http://*/*', 'https://*/*'] },
     ['requestHeaders', 'extraHeaders']
   );
+
+  // 早捕（2026-11-15）：MP3 / MP4 直链是边下边播的流式响应，onCompleted 要等整段
+  // 传完才触发（实测同一条 7.9MB 直链：响应头 3.1s 到达、请求完成 52.1s），
+  // 这几十秒里弹窗一直显示「没有嗅探到媒体流」，用户以为没抓到。
+  // 这里在响应头一到达就入库：store.add 按 URL 幂等，onCompleted 再走一遍不会
+  // 重复推送；headerMeta 保留，让 onCompleted 仍能用同一份 Cookie / Referer。
+  // 独立守卫：某些环境没有这个事件时，绝不能连累下面 onCompleted 的注册。
+  if (chrome.webRequest.onResponseStarted) {
+    try {
+      chrome.webRequest.onResponseStarted.addListener(
+        function (details) {
+          if (!enabled) return;
+          try {
+            var _m = CORE.pickHeaders(details.responseHeaders, null).mime || '';
+            if (!CORE.classifyMedia(details.url || '', _m)) return;   // 非媒体请求一律不碰
+            handleCompleted(details, true);
+          } catch (e) { /* 早捕失败不影响原有 onCompleted 路径 */ }
+        },
+        { urls: ['http://*/*', 'https://*/*'] },
+        ['responseHeaders', 'extraHeaders']
+      );
+    } catch (e) { /* 无早捕能力时静默退回原 onCompleted 路径 */ }
+  }
 
   chrome.webRequest.onCompleted.addListener(
     function (details) {
