@@ -2669,9 +2669,11 @@
   <section id="commentaryView" class="panel" hidden aria-labelledby="comTitle" data-page-node-id="TDzRDuz09EmpVj6PSgUHsm">
     <div class="lib-head" data-page-node-id="WUjHEastNZ9atGHHijMBbD">
       <h2 id="comTitle" class="guide-title" data-page-node-id="FifVH7NXwomsJapGavOWbr">🎬 视频解说</h2>
-      <!-- 环境状态条与标题同行（2026-11-15）：原本是 .lib-head 的兄弟节点、独占一整行。 -->
-      <div id="comEnvStatus" class="com-env-status" hidden></div>
       <div class="lib-head-actions" data-page-node-id="m6bsIWQl3CYftjkG5PFFi8">
+        <!-- 环境状态条与「刷新」并成一组（2026-11-16）：一起靠右、同款尺寸。
+             原本先独占一整行、后紧跟标题，与刷新隔一大段空白。JS 只按 id 读写它，
+             移进 .lib-head-actions 内部不影响诊断/一键修复逻辑。 -->
+        <div id="comEnvStatus" class="com-env-status" hidden></div>
         <button type="button" class="btn btn-ghost btn-sm" id="comRefresh" data-page-node-id="4jtKVLl2yzPG0H0spLNPOb">刷新</button>
       </div>
     <button type="button" class="howto-btn" title="查看操作引导（可随时重新查看）" aria-label="查看操作引导">?</button>

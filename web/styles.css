@@ -6857,18 +6857,23 @@ body.com-hist-open #comHistScrim { opacity: 1; pointer-events: auto; }
   margin: .15rem 0 .5rem;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* 2026-11-15（用户「能否放到一行」）：环境状态条移进 .lib-head，与
-   「🎬 视频解说」「刷新」「?」同行，省掉原来下面独占的一整行。
-   按内容宽紧跟标题，长文案最多占整行 46% 并省略。
-   🔴 按钮贴右靠 .lib-head-actions 的 margin-left:auto：既不能留标题的
-   margin-right:auto（改后隐藏态按钮会跑到中间，实测 1169→758），
-   也不能靠状态条的 margin-right:auto（隐藏时它不参与布局，同样失效）。
+/* 2026-11-16（用户「就不能跟刷新放一起吗 / 按钮也一样大」）：状态条移进
+   .lib-head-actions，与「刷新」并成一组靠右，做成与 .btn-sm 同款尺寸
+   （高 26px / 圆角 9px / 字号 .74rem），视觉上是一排同尺寸控件。
+   🔴 贴右仍靠 .lib-head-actions 的 margin-left:auto、标题 margin-right:0：
+      两个 auto 会平分空间；隐藏态状态条不参与 flex，按钮组依然贴右（实测 1169 不动）。
    🔴 不写 display —— 元素初始带 hidden，靠 UA 的 [hidden]{display:none} 隐藏，
-   一旦作者样式写了 display 会让隐藏态失效、多出一个空绿条。 */
+      一旦作者样式写了 display 会让隐藏态失效、多出一个空绿条。
+   🔴 margin:0 必须覆盖基础 .com-env-status 的 margin-bottom/.15rem 上下边距，
+      否则组内会多出下边距把整行撑高；box-sizing:border-box 让 26px 含 1px 边框，
+      line-height:24px 让文字在这 26px 里垂直居中，与刷新按钮严格同高。 */
 #commentaryView .lib-head > .guide-title { margin-right: 0; flex: none; }
 #commentaryView .lib-head > .lib-head-actions { margin-left: auto; }
-#commentaryView .lib-head > .com-env-status {
-  flex: 0 1 auto; min-width: 0; max-width: 46%; margin: 0;
+#commentaryView .lib-head-actions > .com-env-status {
+  flex: 0 1 auto; min-width: 0; max-width: 260px; margin: 0;
+  height: 26px; box-sizing: border-box; padding: 0 .6rem; line-height: 24px;
+  font-size: .74rem; border-radius: 9px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .com-subbar { padding: .35rem .5rem; gap: .5rem; margin-bottom: .5rem; }
 .com-subbar .com-entry-card { padding: .28rem .5rem; gap: .45rem; }
