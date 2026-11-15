@@ -6859,13 +6859,16 @@ body.com-hist-open #comHistScrim { opacity: 1; pointer-events: auto; }
 }
 /* 2026-11-15（用户「能否放到一行」）：环境状态条移进 .lib-head，与
    「🎬 视频解说」「刷新」「?」同行，省掉原来下面独占的一整行。
-   按内容宽紧跟标题，长文案最多占整行 46% 并省略；右侧空隙吃满让按钮仍贴右。
+   按内容宽紧跟标题，长文案最多占整行 46% 并省略。
+   🔴 按钮贴右靠 .lib-head-actions 的 margin-left:auto：既不能留标题的
+   margin-right:auto（改后隐藏态按钮会跑到中间，实测 1169→758），
+   也不能靠状态条的 margin-right:auto（隐藏时它不参与布局，同样失效）。
    🔴 不写 display —— 元素初始带 hidden，靠 UA 的 [hidden]{display:none} 隐藏，
    一旦作者样式写了 display 会让隐藏态失效、多出一个空绿条。 */
 #commentaryView .lib-head > .guide-title { margin-right: 0; flex: none; }
+#commentaryView .lib-head > .lib-head-actions { margin-left: auto; }
 #commentaryView .lib-head > .com-env-status {
-  flex: 0 1 auto; min-width: 0; max-width: 46%;
-  margin: 0 auto 0 0;
+  flex: 0 1 auto; min-width: 0; max-width: 46%; margin: 0;
 }
 .com-subbar { padding: .35rem .5rem; gap: .5rem; margin-bottom: .5rem; }
 .com-subbar .com-entry-card { padding: .28rem .5rem; gap: .45rem; }
