@@ -17351,6 +17351,8 @@ el.dwVidPlayer.hidden = true;
   //    2026-09-15 删掉「成片增强」里的 BGM 块后，前端恒发 off）。
   var comMusic = { kind: 'off', file: '', volume: 0.18, clipStart: 0, clipEnd: 0, offset: 0 };
   var comMusicAuditionEl = null;
+  var comMusicAuditionBtn = null;           // 当前试听圆钮：停止/结束时还原成 ▶
+  var comMusicAuditionTrackId = null;       // 当前试听曲目 id：点同一个钮 = 暂停/续播
   var comMusicOutCache = null;              // { ts, item } 最近一次成片列表查询结果
   var comMusicCloudTracks = [];             // 云端曲库清单（含 local/path 标记）
   var comMusicCloudLoaded = false;
@@ -17469,6 +17471,8 @@ el.dwVidPlayer.hidden = true;
       try { comMusicAuditionEl.pause(); } catch (_) { /* 已释放 */ }
       comMusicAuditionEl = null;
     }
+    comMusicAuditionTrackId = null;
+    if (comMusicAuditionBtn) { comMusicAuditionBtn.textContent = '▶'; comMusicAuditionBtn = null; }
   };
   const comMusicAudition = async () => {
     comMusicStopAudition();
@@ -17570,9 +17574,10 @@ el.dwVidPlayer.hidden = true;
   };
   const comMusicCloudAudition = async (t) => {
     comMusicStopAudition();
-    const url = (t.local && t.path)
+    // 已下载或试听后已静默缓存 → 走本地预览（不重新加载云端）；否则云端直链
+    const url = ((t.local || t._cached) && t.id != null)
       ? '/api/commentary/bgm/preview?id=' + encodeURIComponent(t.id)
-      : t.url;   // 未下载时用云端直链（audio 标签可跨域播放）
+      : t.url;
     try {
       const a = new Audio(url);
       a.volume = Math.max(0, Math.min(1, comMusic.volume));
@@ -17580,6 +17585,60 @@ el.dwVidPlayer.hidden = true;
       comMusicAuditionEl = a;
       await a.play();
       comMusicHint('试听中：' + t.name + (t.local ? '（已存到本机）' : '（云端在线试听）'), 'ok');
+      if (!t.local) comMusicCloudCacheBg(t);   // 试听过的曲子悄悄缓存到本地，下次不再加载
+    } catch (e) {
+      comMusicStopAudition();
+      comMusicHint('试听失败：' + ((e && e.message) || e), 'err');
+    }
+  };
+  /** 云端曲试听后台缓存（2026-11-15 用户「试听过后应该在本地可以直接用、不需要再加载」）：
+   *  试听成功后悄悄下载到本机曲库（/bgm/fetch），下次试听改走本地预览地址、不再拉云端直链。
+   *  ⚠️ 不翻转 t.local、不改界面「已下载」文案（用户要求不标记）。仅在内存记 _cached。 */
+  const comMusicCloudCacheBg = async (t) => {
+    if (!t || t.local || t._cached) return;
+    try {
+      const r = await request('/api/commentary/bgm/fetch', {
+        method: 'POST', body: JSON.stringify({ id: t.id })
+      });
+      const p = r && r.path;
+      if (p) { t._cached = true; t._cachePath = p; }   // 静默，不触发任何界面重绘
+    } catch (_) { /* 后台缓存失败不打扰用户，下次再试 */ }
+  };
+  /** 曲库卡小圆钮试听（2026-11-15 用户「按钮小一点…再点击一次就暂停，放同一行」）：
+   *  同一首播放中→暂停；已暂停→从暂停处续播；换一首→停旧起新。云端曲起播后自动缓存到本地。 */
+  const comMusicCardAudition = async (t, btn) => {
+    const tid = (t.id != null ? t.id : t.name);
+    if (comMusicAuditionEl && comMusicAuditionTrackId === tid) {
+      const a = comMusicAuditionEl;
+      if (a.paused) {
+        try {
+          await a.play();
+          if (btn) btn.textContent = '⏸';
+          comMusicHint('试听中：' + t.name + '（续播）', 'ok');
+        } catch (_) { comMusicStopAudition(); }
+      } else {
+        try { a.pause(); } catch (_) { /* 已停 */ }
+        if (btn) btn.textContent = '▶';
+        comMusicHint('已暂停试听「' + t.name + '」（再点一次续播）');
+      }
+      return;
+    }
+    comMusicStopAudition();
+    // 已下载或试听后已静默缓存 → 走本地预览（不重新加载云端）；否则云端直链
+    const url = ((t.local || t._cached) && t.id != null)
+      ? '/api/commentary/bgm/preview?id=' + encodeURIComponent(t.id)
+      : t.url;
+    try {
+      const a = new Audio(url);
+      a.volume = Math.max(0, Math.min(1, comMusic.volume));
+      a.addEventListener('ended', comMusicStopAudition);
+      comMusicAuditionEl = a;
+      comMusicAuditionTrackId = tid;
+      comMusicAuditionBtn = btn || null;
+      if (btn) btn.textContent = '⏸';
+      await a.play();
+      comMusicHint('试听中：' + t.name + (t.local ? '（已存到本机）' : '（云端在线试听）'), 'ok');
+      if (!t.local) comMusicCloudCacheBg(t);   // 试听过的曲子悄悄缓存到本地，下次不再加载
     } catch (e) {
       comMusicStopAudition();
       comMusicHint('试听失败：' + ((e && e.message) || e), 'err');
@@ -17704,12 +17763,14 @@ el.dwVidPlayer.hidden = true;
         + (t.local ? ' 已下载' : (t.size ? ' ' + Math.round(t.size / 1024) + 'KB' : ''));
       const aud = document.createElement('button');
       aud.type = 'button';
-      aud.className = 'btn btn-xs btn-secondary com-music-audition';
-      aud.textContent = '▶ 试听';
-      aud.title = '试听：' + t.name;
+      // 小圆钮（2026-11-15 用户参考截图）：与曲名同一行；播放中变 ⏸，再点暂停/续播
+      aud.className = 'com-music-play';
+      const tid = (t.id != null ? t.id : t.name);
+      aud.textContent = (comMusicAuditionEl && comMusicAuditionTrackId === tid && !comMusicAuditionEl.paused) ? '⏸' : '▶';
+      aud.title = '试听 / 暂停：' + t.name;
       aud.addEventListener('click', (ev) => {
         ev.stopPropagation();   // 别触发整行选中
-        comMusicCloudAudition(t);
+        comMusicCardAudition(t, aud);
       });
       row.appendChild(name);
       row.appendChild(meta);
