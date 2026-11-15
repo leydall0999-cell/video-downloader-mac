@@ -3520,6 +3520,19 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
 .com-retain-unit { font-size: .85rem; font-weight: 600; color: var(--accent); }
 .com-retain-hint { font-size: .74rem; opacity: .75; }
 
+/* 成片占原片比例（2026-11-15）：推荐/风险提示条 + 语义说明 */
+.com-retain-level {
+  display: block; font-size: .76rem; font-weight: 600;
+  line-height: 1.5; margin-top: .25rem;
+}
+.com-retain-level.com-level-ok   { color: var(--success); }
+.com-retain-level.com-level-warn { color: #b45309; }
+.com-retain-level.com-level-risk { color: var(--danger); }
+.com-retain-note {
+  display: block; font-size: .72rem; line-height: 1.5;
+  color: var(--text-mute); opacity: .85; margin-top: .2rem;
+}
+
 /* 下拉项置灰（不可用项直接灰显不可选） */
 .com-select option:disabled { color: #b0b0b0; }
 .com-select option { font-size: .78rem; }

@@ -700,6 +700,10 @@
     comFeatherHint: $('comFeatherHint'),
     comMaxChars: $('comMaxChars'),
     comMaxCharsVal: $('comMaxCharsVal'),
+    // 成片占原片比例（retain_pct，2026-11-15）：选材范围上限，100=不裁剪
+    comRetainPct: $('comRetainPct'),
+    comRetainPctVal: $('comRetainPctVal'),
+    comRetainPctLevel: $('comRetainPctLevel'),
     comFileInput: $('comFileInput'),
     comFileBtn: $('comFileBtn'),
     comFileStatus: $('comFileStatus'),
@@ -11482,6 +11486,51 @@ el.dwVidPlayer.hidden = true;
 
   // source: { taskId }（下载完成的任务）或 { fileId }（媒体库里的现成视频）
   // 读取当前选中的剪辑选项（解说类型 / 高光来源 / 开关）
+  /**
+   * 成片占原片比例（2026-11-15）：读 #comRetainPct → 后端 retain_pct。
+   * 后端语义＝「保留全片时长百分比(10~100, 不填=不裁剪)」：
+   *   · 100 = 不裁剪 → 发 null，行为与现网完全一致（默认档）。
+   *   · <100 = 写稿阶段只取原片前 N% 的转写稿；渲染阶段成片计划时长超过 N% 才砍。
+   * ⚠️ 它是「上限 / 前段取材」，不会把本来很短的解说稿拉长——这条写进 UI 提示，别让用户误解。
+   */
+  const comGetRetainPct = () => {
+    const v = el.comRetainPct ? Number(el.comRetainPct.value) : 100;
+    if (!v || v >= 100) return null;       // 默认不裁剪，不占用字段
+    return Math.min(100, Math.max(10, v)); // 后端允许 10~100
+  };
+
+  /** 比例滑块的数值回显 + 推荐/风险提示，随 input 实时刷新；也用于初始化。 */
+  const comSyncRetainPctHint = () => {
+    if (!el.comRetainPct) return;
+    const v = Number(el.comRetainPct.value);
+    if (el.comRetainPctVal) {
+      el.comRetainPctVal.textContent = (v >= 100) ? '不裁剪' : ('前 ' + v + '%');
+    }
+    let tone = 'ok', msg = '';
+    if (v >= 100) {
+      tone = 'ok';
+      msg = '默认：AI 覆盖全片自由选材。';
+    } else if (v >= 60) {
+      tone = 'ok';
+      msg = '✅ 推荐 60–95%：主线完整、二创充分，审核最稳。';
+    } else if (v >= 40) {
+      tone = 'warn';
+      msg = '⚠️ 覆盖偏少：只讲前段，后半剧情会跳；适合短剧/片段。';
+    } else {
+      tone = 'risk';
+      msg = '⛔ 覆盖很少：剧情不完整，更像片段剪辑，慎选。';
+    }
+    // 95~99% 与 100% 差别极小但会触发前段裁剪，单独给「接近搬运」风险提示
+    if (v >= 95 && v < 100) {
+      tone = 'risk';
+      msg = '⛔ 接近全片：解说覆盖几乎整集，搬运风险上升，建议 ≤95% 或直接用「不裁剪」。';
+    }
+    if (el.comRetainPctLevel) {
+      el.comRetainPctLevel.className = 'com-retain-level com-level-' + tone;
+      el.comRetainPctLevel.textContent = msg;
+    }
+  };
+
   const comGetOptions = () => {
     const typeEl = document.querySelector('input[name="comType"]:checked');
     const srcEl = document.querySelector('input[name="comHlSource"]:checked');
@@ -11545,6 +11594,8 @@ el.dwVidPlayer.hidden = true;
         ? comSubPosCustom
         : 'bottom',
       max_chars: el.comMaxChars ? Number(el.comMaxChars.value) : 0,
+      // 成片占原片比例（retain_pct）：100/默认发 null，不裁剪；<100 走前段选材+上限裁剪
+      retain_pct: comGetRetainPct(),
       // 原字幕羽化：空串＝不干预（管线走自身自动探测）；有值＝按预览调好的位置/方式/强度渲染
       feather_opt: comGetFeatherOpt(),
     };
@@ -12813,6 +12864,8 @@ el.dwVidPlayer.hidden = true;
       form.append('subtitle_border_color', _opts.subtitle_border_color || '000000');
       form.append('subtitle_pos', _opts.subtitle_pos);
       form.append('max_chars', String(_opts.max_chars));
+      // 成片占原片比例：只在非默认（<100）时下发，100 时留空＝不裁剪，行为零变化
+      if (_opts.retain_pct != null) form.append('retain_pct', String(_opts.retain_pct));
       if (_opts.feather_opt) form.append('feather_opt', _opts.feather_opt);
       // 配音引擎必须随渲染一起发下去（2026-09-18 修）：本接口此前没有这个参数，
       // 界面选了本地语音克隆也传不到渲染子进程 → 成片用的是 tts_config.json 里的旧引擎。
@@ -16168,6 +16221,10 @@ el.dwVidPlayer.hidden = true;
   // （BGM 的三行初始化 2026-09-18 删除：comBgm* 元素已不存在，配乐改用 comMusic；
   //   comMusicSync() 在音乐轨自己的初始化里调用。）
   if (el.comMaxChars && el.comMaxCharsVal) el.comMaxCharsVal.textContent = (Number(el.comMaxChars.value) === 0) ? '不限' : (Number(el.comMaxChars.value) + '字');
+
+  // 成片占原片比例：拖动实时刷新「前 N% / 不裁剪」+ 推荐风险提示，并初始化回显
+  if (el.comRetainPct) el.comRetainPct.addEventListener('input', comSyncRetainPctHint);
+  comSyncRetainPctHint();
 
   // 来源互斥：选了下拉就清空本地文件
   el.comSource.addEventListener('change', () => {

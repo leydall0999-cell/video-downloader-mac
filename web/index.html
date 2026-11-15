@@ -2843,6 +2843,18 @@
         </div>
         <span class="com-retain-hint" data-page-node-id="z45Ba9CiW0noNbuF3o3eeJ">0=不限制；短视频想短就调小（如 600），课程想长就调大</span>
       </div>
+      <!-- 成片占原片比例（2026-11-15）：后端 retain_pct，10~100，100=不裁剪。
+           真实语义＝「从原片前段取多少内容来讲 + 成片时长上限」，只能砍短、不能把短稿拉长；
+           推荐/风险提示在 app.js 里随滑块实时切换。调整后需重新「生成脚本」才改变解说覆盖面。 -->
+      <div class="com-opt-block com-opt-block-full" id="comRetainBlock">
+        <div class="com-opt-title">成片占原片比例（选材范围）</div>
+        <div class="com-opt-row">
+          <input type="range" id="comRetainPct" min="10" max="100" step="5" value="100" aria-label="成片占原片比例" />
+          <span class="com-vol-val" id="comRetainPctVal">不裁剪</span>
+        </div>
+        <span class="com-retain-level" id="comRetainPctLevel"></span>
+        <span class="com-retain-note">这是「保留上限 / 前段取材」——只会让成片更短或聚焦前段，不会把短稿自动拉长。想更长要靠上面的「解说长度」让 AI 多写。</span>
+      </div>
     </div>
         </div><!-- /com-actionbar -->
         <!-- ===== 剪映式三轨时间轴（2026-09-17 晚，对齐用户给的效果图）=====
