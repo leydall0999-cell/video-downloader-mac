@@ -16942,36 +16942,8 @@ el.dwVidPlayer.hidden = true;
     [noiseEl, filterEl, speedEl, pitchEl, wmOpEl, resEl].forEach((el) => { if (el) el.addEventListener('input', refresh); });
     refresh();
   })();
-  // ---- 卡面字体选择（2026-11-15）：作用于剧集深度解说的信息栏 / 原创知识卡 ----
-  // 走 crop_ratio 规格串 !font=<key> 透传（前端拼、后端原样下发、管线解析），
-  // 前端与包内明文脚本即可热更，无需改冻结的 server/app.py。
-  (function initComBarFont() {
-    const row = document.getElementById('comTemplateRow');
-    if (!row) return;
-    const box = document.createElement('div');
-    box.className = 'com-row';
-    box.style.cssText = 'margin-top:6px;';
-    box.innerHTML =
-      '<div class="com-cell" style="flex:1;width:100%;padding:8px 10px;border:1px dashed #2a2f3a;border-radius:6px;box-sizing:border-box;">' +
-      '<div style="font-size:12px;color:#c7ccd6;margin-bottom:4px;">卡面字体（信息栏 / 知识卡）</div>' +
-      '<select id="comBarFont" style="width:100%;background:#1b1f2a;border:1px solid #2a2f3a;color:#c7ccd6;border-radius:4px;padding:4px 6px;font-size:12px;">' +
-      '<option value="">默认（思源宋体·衬线）</option>' +
-      '<option value="noto">思源宋体（衬线·历史正剧）</option>' +
-      '<option value="noto_sans">思源黑体（无衬线·都市现代）</option>' +
-      '<option value="xiaowei">站酷小薇（细宋·文艺抒情）</option>' +
-      '<option value="huangyou">庆科黄油体（圆胖·轻松喜剧）</option>' +
-      '<option value="kuaile">站酷快乐体（活泼·儿童综艺）</option>' +
-      '<option value="maobi">马善政毛笔楷书（书法·古装武侠）</option>' +
-      '<option value="longcang">龙藏体（硬笔手写·纪实日记）</option>' +
-      '<option value="dasong">汉仪大宋（本机需已安装）</option>' +
-      '<option value="kai">汉仪楷体（本机需已安装）</option>' +
-      '<option value="fangsong">汉仪仿宋（本机需已安装）</option>' +
-      '<option value="song">系统宋体（本机兜底）</option>' +
-      '</select>' +
-      '<div style="font-size:11px;color:#6b7280;line-height:1.45;margin-top:4px;">前 7 套为开源字体，首次使用自动从云端下载；' +
-      '后 4 套需本机已安装，缺失时自动回退系统宋体。选「默认」即保持原样。</div></div>';
-    row.insertAdjacentElement('afterend', box);
-  })();
+  // 成片字体选择器（comBarFont）已迁到 index.html 的「字幕样式」区块（静态写死），
+  // 仍走 !font=<key> 规格串透传，统一控制字幕 + 信息栏/知识卡；此处不再动态生成。
   // 初始化后按当前「解说类型」把不该参与的下拉灰掉
   applyComSelectEnabled();
 

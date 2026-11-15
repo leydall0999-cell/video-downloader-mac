@@ -3203,6 +3203,25 @@
             </div>
             <button type="button" class="com-sub-reset" id="comSubPosReset" title="字幕回到默认底部位置" aria-label="字幕回到默认底部位置">↺</button>
           </div>
+          <!-- 成片字体（2026-11-15）：与信息栏/知识卡统一，走 !font=<key> 透传；选「默认」即保持原样 -->
+          <div class="com-sub-row" style="margin-top:10px;flex-direction:column;align-items:stretch;gap:4px;">
+            <div style="font-size:12px;color:#c7ccd6;">成片字体（字幕 / 信息栏 / 知识卡）</div>
+            <select id="comBarFont" style="width:100%;background:#1b1f2a;border:1px solid #2a2f3a;color:#c7ccd6;border-radius:4px;padding:4px 6px;font-size:12px;">
+              <option value="">默认（思源宋体·衬线）</option>
+              <option value="noto">思源宋体（衬线·历史正剧）</option>
+              <option value="noto_sans">思源黑体（无衬线·都市现代）</option>
+              <option value="xiaowei">站酷小薇（细宋·文艺抒情）</option>
+              <option value="huangyou">庆科黄油体（圆胖·轻松喜剧）</option>
+              <option value="kuaile">站酷快乐体（活泼·儿童综艺）</option>
+              <option value="maobi">马善政毛笔楷书（书法·古装武侠）</option>
+              <option value="longcang">龙藏体（硬笔手写·纪实日记）</option>
+              <option value="dasong">汉仪大宋（本机需已安装）</option>
+              <option value="kai">汉仪楷体（本机需已安装）</option>
+              <option value="fangsong">汉仪仿宋（本机需已安装）</option>
+              <option value="song">系统宋体（本机兜底）</option>
+            </select>
+            <div style="font-size:11px;color:#6b7280;line-height:1.45;">前 7 套为开源字体，首次使用自动从云端下载；后 4 套需本机已安装，缺失时自动回退系统宋体。选「默认」即保持原样。</div>
+          </div>
         </div>
 
       </details>
