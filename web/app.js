@@ -11503,8 +11503,11 @@ el.dwVidPlayer.hidden = true;
       template: tplEl ? tplEl.value : 'standard',
       // 画幅比例预设（2026-11-11）：auto/16:9/4:3/1:1/9:16。后端 edit_ffmpeg 按此做居中 cover-crop。
       // 旧后端不认该字段（CommentaryRequest extra=ignore）会忽略，照常由 vertical 决定画幅，零破坏性。
-      // 2026-11-13：comGetCropSpec 在基础比例后拼接指纹扰动后缀（!rand/!noise/!filter/!speed）。
-      crop_ratio: comGetCropSpec(),
+      // 2026-11-15 修正：script-only 这里只发基础比例（comGetAspect()）——后端 CommentaryRequest
+      // 对 crop_ratio 限长 32，「降重复检测」开启时 !rand/!noise/!filter/!speed/!pitch/!wmcfg
+      // 一拼就超限 422。扰动/水印/字体/分辨率规格本就由「生成成片」的 FormData 全量下发
+      // （comGetCropSpec(true)，Form 字段无限长），script.json 落底值只做老脚本回退兜底。
+      crop_ratio: comGetAspect(),
       // 2026-11-15：剪辑模板选了「剧集深度解说」时，文案规则由模板决定 →
       // commentary_type 固定发 series_deep（此时「解说类型」整组已灰化，值不可改）。
       // template 仍原样发 'series'，后端拼 --template series 让剪辑层走知识卡隔断。
