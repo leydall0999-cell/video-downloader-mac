@@ -4089,15 +4089,21 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
   overflow: hidden;
 }
 /* summary 用 display:flex 会让 WebKit 把默认 ▾ 挤成孤行 ⇒ 干掉原生标记，自绘折叠箭头 */
-.com-feather-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; list-style: none; min-width: 0; }
+/* 2026-11-15（用户「这个能做成一行吗」）：窄右栏里标题与状态徽章必须同一行。
+   原来 flex-wrap:wrap + gap .5rem 在 194px 卡宽下放不下 88px 标题 + 82px 徽章，
+   徽章被挤到第二行、头高 51px。改 nowrap + 收紧间距后头高 22px。
+   标题 flex:none 保持完整；徽章 flex:0 1 auto，超长文案自己省略；三角 ::after 仍 flex:none 贴右。 */
+.com-feather-head { display: flex; align-items: center; gap: .28rem; flex-wrap: nowrap; list-style: none; min-width: 0; }
 .com-feather-head::-webkit-details-marker { display: none; }
 .com-feather-head::after { content: '▾'; margin-left: auto; color: var(--text-mute); font-size: .72rem; }
 .com-feather-card[open] .com-feather-head::after { content: '▴'; }
-.com-feather-title { font-size: .84rem; font-weight: 700; color: var(--text); }
+.com-feather-title { font-size: .84rem; font-weight: 700; color: var(--text); flex: none; white-space: nowrap; }
 .com-feather-state {
-  font-size: .72rem; padding: .1rem .42rem; border-radius: 999px;
+  font-size: .68rem; padding: .1rem .28rem; border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--text-mute); white-space: nowrap;
+  /* 同行布局：空间不够时只让徽章自己收缩省略，绝不把标题挤没或换行 */
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
 .com-feather-state.is-ok { background: color-mix(in srgb, #16a34a 16%, transparent); color: #15803d; }
 .com-feather-state.is-miss { background: color-mix(in srgb, #d97706 16%, transparent); color: #b45309; }
@@ -4270,7 +4276,7 @@ details[open].com-vol-card > .com-vol-card-head::after { content: "▾"; }
 #commentaryView #comAiConfig > #aiSettings[open] > .adv-summary::after { content: "▾"; }
 /* 展开内容区与折叠卡内容区同距（折叠卡是 .com-cell 的 .15rem .6rem .65rem） */
 #commentaryView #comAiConfig > #aiSettings > .adv-body { margin: .15rem .6rem .65rem; }
-.com-col-right .com-feather-card { padding: .2rem .55rem .25rem; gap: .35rem; margin-bottom: .3rem; }
+.com-col-right .com-feather-card { padding: .2rem .4rem .25rem; gap: .35rem; margin-bottom: .3rem; }
 .com-col-right .com-vol-card-head { padding: .2rem .55rem; }
 /* 音量卡的 margin-bottom 原由 #commentaryView 前缀的规则写死 .55rem，这里同权重覆盖成 .3rem */
 #commentaryView .com-col-right > .com-vol-card { margin: .3rem 0; }
