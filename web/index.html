@@ -2843,18 +2843,6 @@
         </div>
         <span class="com-retain-hint" data-page-node-id="z45Ba9CiW0noNbuF3o3eeJ">0=不限制；短视频想短就调小（如 600），课程想长就调大</span>
       </div>
-      <!-- 理想成片时长（2026-11-15）：软目标，通过 render 阶段 crop_ratio 规格串 !dur=<分钟> 下发。
-           画面按原片时间轴连续铺满，无解说处原片自己播；到接近目标分钟时在剧情断点（解说段讲完处）收尾。
-           0=跟随模板原行为；script-only 路径不发送该参数（crop_ratio 限长 32），只在生成成片时透传。 -->
-      <div class="com-opt-block com-opt-block-full" id="comTargetBlock">
-        <div class="com-opt-title">理想成片时长（分钟）</div>
-        <div class="com-opt-row">
-          <input type="range" id="comTargetMin" min="0" max="60" step="1" value="0" aria-label="理想成片时长（分钟）" />
-          <span class="com-vol-val" id="comTargetMinVal">跟随模板</span>
-        </div>
-        <span class="com-retain-level" id="comTargetMinLevel"></span>
-        <span class="com-retain-note">这是理想时长（软目标）不是绝对时长：到接近目标时会在解说段讲完处收尾，绝不为凑时长切断剧情。画面连续铺满时，没配音的地方是原片自己在播；铺得越长，搬运审核风险越高，建议在剧情完整范围内使用。0=完全跟随剪辑模板原行为。</span>
-      </div>
     </div>
         </div><!-- /com-actionbar -->
         <!-- ===== 剪映式三轨时间轴（2026-09-17 晚，对齐用户给的效果图）=====
@@ -3447,6 +3435,29 @@
         <p class="com-style-note" data-page-node-id="comStyleIntensityHint">弱 → 强（默认 65）；调低更克制自然</p>
       </div>
       <p class="com-style-hint" id="comStyleHint" data-page-node-id="dCUvaY0nB7rEDAZ0uBfsG9">默认风格：音色由下方「全局配音」决定。</p>
+        </div>
+      </details>
+
+      <!-- 缩短成片时长（2026-11-15 二次改）：用户「只做缩短成片时间，不做拉长成片时长」+
+           「根据选择好的起点终点来决定整片的时长」。做成与上方各卡同款的折叠卡放在右栏，
+           不再占中栏（中栏恢复只有「解说长度」的紧凑布局）。
+           🔴 上限不写死：comSyncTargetRange() 读剧集数据（源视频总长 + 起点/终点）算出整片分钟数
+           动态写进 #comTargetMin.max，值永远 ≤ 整片时长 ⇒ 物理上不存在「拉长」。
+           0 = 不缩短（跟随剪辑模板原行为）；>0 = 缩短到该分钟，render 阶段经 !dur= 下发，
+           管线按原片时间轴连续铺满后在剧情断点收尾、只截短不加画面。 -->
+      <details class="com-fold-card com-target-fold" id="comTargetFold">
+        <summary class="com-fold-head">
+          <span class="com-fold-title">✂️ 缩短成片时长</span>
+          <span class="com-fold-hint" id="comTargetFoldHint">跟随模板</span>
+        </summary>
+        <div class="com-opts com-target-section">
+          <div class="com-target-full">整片（起点 → 终点）：<b id="comTargetFull">请先选择视频</b></div>
+          <div class="com-opt-row">
+            <input type="range" id="comTargetMin" min="0" max="1" step="1" value="0" aria-label="缩短成片到（分钟）" />
+            <span class="com-vol-val" id="comTargetMinVal">不缩短</span>
+          </div>
+          <span class="com-retain-level" id="comTargetMinLevel"></span>
+          <span class="com-retain-note">只做缩短：数值＝目标成片分钟数，上限就是起点→终点算出的整片时长，不会出现比原片更长的时间。拖到最右≈完整整片，往左越短；到剧情断点收尾，绝不切断剧情，无解说处为原片自己播放。0＝不启用，跟随剪辑模板原行为。</span>
         </div>
       </details>
 

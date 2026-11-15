@@ -700,10 +700,12 @@
     comFeatherHint: $('comFeatherHint'),
     comMaxChars: $('comMaxChars'),
     comMaxCharsVal: $('comMaxCharsVal'),
-    // 理想成片时长（分钟，2026-11-15）：软目标，经 render 的 crop_ratio !dur= 透传；0=跟随模板
+    // 缩短成片时长（2026-11-15 二次改）：右栏折叠卡；上限动态＝起点→终点整片分钟数
     comTargetMin: $('comTargetMin'),
     comTargetMinVal: $('comTargetMinVal'),
     comTargetMinLevel: $('comTargetMinLevel'),
+    comTargetFull: $('comTargetFull'),
+    comTargetFoldHint: $('comTargetFoldHint'),
     comFileInput: $('comFileInput'),
     comFileBtn: $('comFileBtn'),
     comFileStatus: $('comFileStatus'),
@@ -11487,46 +11489,117 @@ el.dwVidPlayer.hidden = true;
   // source: { taskId }（下载完成的任务）或 { fileId }（媒体库里的现成视频）
   // 读取当前选中的剪辑选项（解说类型 / 高光来源 / 开关）
   /**
-   * 理想成片时长（分钟，2026-11-15）：读 #comTargetMin → render 阶段 crop_ratio 的 !dur=。
-   * 这是「软目标」不是绝对时长：画面按原片时间轴连续铺满，到接近目标分钟时在最近的
-   * 剧情断点（解说段讲完处）收尾，绝不为凑时长切断剧情。
-   *   · 0 = 不启用，完全跟随剪辑模板原行为（series/reconstruct 仍是精炼二创短片）。
-   *   · >0 = 铺满模式：无解说处原片自己播；解说作为音轨/字幕叠加在原时间轴上。
-   * ⚠️ 它不写进 script-only 的 JSON body（crop_ratio 限长 32），只在 render FormData
-   *    通过 comGetCropSpec(true) 追加 !dur=<分钟> 下发；retain_pct 恒为 null，避免写稿阶段误裁剪。
+   * 缩短成片时长（2026-11-15 二次改）——用户三条反馈：
+   *   ①「怎么是 60 分钟呢？应该读取视频剧集来的数据」→ 上限不再写死，改由剧集真实时长决定；
+   *   ②「根据选择好的起点终点来决定整片的时长」→ 整片 = 终点 − 起点（留空则取视频总长）；
+   *   ③「只做缩短成片时间，不做拉长成片时长」→ 滑块值恒 ≤ 整片分钟数，管线只做截断、
+   *      从不补画面（!dur= 的 _apply_target_minutes 本就如此），所以物理上无法「拉长」。
+   * 0 = 不缩短（跟随剪辑模板原行为）；>0 = 缩短成片到该分钟，在剧情断点收尾。
+   * ⚠️ 只经 render FormData 的 comGetCropSpec(true) 下发 !dur=，不进 script-only JSON body
+   *    （crop_ratio 限长 32）；retain_pct 恒为 null，避免写稿阶段误裁剪。
    */
-  const comGetTargetMin = () => {
-    const v = el.comTargetMin ? Number(el.comTargetMin.value) : 0;
-    if (!v || v <= 0) return 0;            // 默认跟随模板
-    return Math.min(60, Math.max(1, Math.round(v))); // 管线侧还会在 0~240 内兜底
+
+  /** 整片时长（秒）= 终点 − 起点；起点留空按 0，终点留空按视频总长。未选片返回 0。 */
+  const comFullSpanSec = () => {
+    const total = comPreviewDuration || 0;
+    const start = comDramaSec(el.comDramaStart) || 0;
+    const endRaw = comDramaSec(el.comDramaEnd);
+    const end = (endRaw != null && endRaw > 0)
+      ? (total > 0 ? Math.min(endRaw, total) : endRaw)
+      : total;
+    return Math.max(0, end - start);
   };
 
-  /** 分钟滑块的数值回显 + 推荐/风险提示，随 input 实时刷新；也用于初始化。 */
+  /** 秒 → 「MM:SS」（≥1 小时则 H:MM:SS），与播放器时间条同款写法，精确到秒。
+   *  刻意不写「向上取整的分钟数」：42:03 写成「43 分钟」会自相矛盾。
+   *  量程/提示里的「N 分钟」是档位口径，取整逻辑只在滑块 max 上做。 */
+  const comSpanLabel = (sec) => {
+    if (!sec || sec <= 0) return '';
+    const s = Math.floor(sec);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return (h > 0 ? h + ':' + String(m).padStart(2, '0') : String(m))
+      + ':' + String(ss).padStart(2, '0');
+  };
+
+  const comGetTargetMin = () => {
+    const sl = el.comTargetMin;
+    if (!sl) return 0;
+    const v = Number(sl.value);
+    if (!v || v <= 0) return 0;              // 0 = 不缩短
+    const max = Number(sl.max) || 0;
+    // 只缩短：硬夹在「整片分钟数」以内，绝不超过原片（clamp 也兜住换片后量程变小的情形）
+    return Math.max(1, Math.min(max > 0 ? max : 240, Math.round(v)));
+  };
+
+  /** 数值回显 + 推荐/风险提示；折叠卡收起时靠 #comTargetFoldHint 也能一眼看到当前设定。
+   *  无参调用（内部自己读剧集数据）；不要直接当 addEventListener 的 handler 传 Event 进来。 */
   const comSyncTargetMinHint = () => {
-    if (!el.comTargetMin) return;
-    const v = Number(el.comTargetMin.value);
-    if (el.comTargetMinVal) {
-      el.comTargetMinVal.textContent = (v <= 0) ? '跟随模板' : (v + ' 分钟');
+    const sl = el.comTargetMin;
+    if (!sl) return;
+    const fullSec = comFullSpanSec();
+    const fullMin = fullSec > 0 ? Math.ceil(fullSec / 60) : 0;
+    const v = Number(sl.value);
+
+    // 卡内：整片时长（来自剧集 / 起点终点）
+    if (el.comTargetFull) {
+      el.comTargetFull.textContent = fullSec > 0 ? comSpanLabel(fullSec) : '请先选择视频';
     }
+    const label = (v <= 0) ? '不缩短' : ('缩短到 ' + v + ' 分钟');
+    if (el.comTargetMinVal) el.comTargetMinVal.textContent = label;
+    if (el.comTargetFoldHint) el.comTargetFoldHint.textContent = (v <= 0 ? '跟随模板' : label);
+
     let tone = 'ok', msg = '';
-    if (v <= 0) {
-      tone = 'ok';
-      msg = '默认：完全跟随剪辑模板原行为。';
-    } else if (v <= 15) {
-      tone = 'ok';
-      msg = '✅ 短片：画面连续铺满到接近 ' + v + ' 分钟，在剧情断点收尾。';
-    } else if (v <= 35) {
-      tone = 'ok';
-      msg = '✅ 推荐：铺满 + 剧情断点收尾，无解说处原片自己播，观感更完整。';
-    } else {
+    if (!fullSec) {
       tone = 'warn';
-      msg = '⚠️ 长片：铺满画面越多越接近原片连续播放，搬运审核风险上升，请确认剧情完整性。';
+      msg = '⚠️ 请先选择视频；量程会按起点→终点自动读出整片时长。';
+    } else if (v <= 0) {
+      tone = 'ok';
+      msg = '默认：不启用缩短，完全跟随剪辑模板原行为。整片 ' + comSpanLabel(fullSec) + '。';
+    } else {
+      const keep = v / fullMin;              // 保留比例
+      if (keep >= 0.95) {
+        tone = 'warn';
+        msg = '⚠️ 接近整片：缩短很少，几乎等于原片连续播放，二创程度低、搬运审核风险偏高。';
+      } else if (keep >= 0.6) {
+        tone = 'ok';
+        msg = '✅ 推荐：缩短到 ' + v + ' 分钟（整片 ' + comSpanLabel(fullSec) + '），主线完整、在剧情断点收尾。';
+      } else {
+        tone = 'ok';
+        msg = '✅ 明显缩短：原创解说占比高、审核更稳；剧情会跳得快些，适合短剧 / 片段。';
+      }
     }
     if (el.comTargetMinLevel) {
       el.comTargetMinLevel.className = 'com-retain-level com-level-' + tone;
       el.comTargetMinLevel.textContent = msg;
     }
   };
+
+  /**
+   * 把剧集真实时长写进滑块量程，并同步卡内读数 / 提示 / 折叠头摘要。
+   * 触发点：选片加载完成、起点或终点任一变化、初始化。
+   */
+  const comSyncTargetRange = () => {
+    const sl = el.comTargetMin;
+    if (!sl) return;
+    const span = comFullSpanSec();
+    const maxMin = span > 0 ? Math.max(1, Math.ceil(span / 60)) : 0;
+    if (maxMin > 0) {
+      sl.max = String(maxMin);
+      sl.disabled = false;
+      if (Number(sl.value) > maxMin) sl.value = String(maxMin);
+    } else {
+      // 未选片：锁住量程，不让用户凭空拖出一个「比剧集还长」的数
+      sl.max = '1';
+      sl.disabled = true;
+      if (Number(sl.value) > 1) sl.value = '1';
+    }
+    comSyncTargetMinHint();
+  };
+
+  // 起点/终点任一变化 → 重算「缩短成片时长」滑块的整片量程。
+  // 挂在本作用域内（comSyncTargetRange 是 IIFE 内 const，跨作用域拿不到）；
+  // 复用已有事件总线，覆盖输入框/滑块/段式输入/清空/换片全部改值路径。
+  document.addEventListener('vdl:com-precheck-refresh', () => comSyncTargetRange());
 
   const comGetOptions = () => {
     const typeEl = document.querySelector('input[name="comType"]:checked');
@@ -11945,8 +12018,9 @@ el.dwVidPlayer.hidden = true;
       // 100% = 不改分辨率，不拼参数，保持老行为；80~99% = 整片等比缩小去指纹
       if (res >= 50 && res < 100) spec += `!res=${res}`;
       if (font) spec += `!font=${font}`;
-      // 理想成片时长（分钟，软目标）：>0 时铺满模式走 !dur=，管线按原片时间轴连续铺满、
-      // 到接近目标时在剧情断点收尾；0=不拼，保持模板原有行为。仅 render 阶段带（Form 无限长）。
+      // 缩短成片时长（分钟）：>0 时下发 !dur=，管线从完整整片往下截、在剧情断点收尾，
+      // 只缩短不加画面；0=不拼，保持模板原有行为。仅 render 阶段带（Form 无限长，
+      // script-only 的 crop_ratio 限长 32，仍只发 comGetAspect()）。
       const targetMin = comGetTargetMin();
       if (targetMin > 0) spec += `!dur=${targetMin}`;
     }
@@ -13878,6 +13952,7 @@ el.dwVidPlayer.hidden = true;
       if (el.comDramaStartRange) el.comDramaStartRange.max = String(comPreviewDuration || 100);
       if (el.comDramaEndRange) el.comDramaEndRange.max = String(comPreviewDuration || 100);
       resetTrim();
+      comSyncTargetRange();     // 剧集时长就绪 → 缩短滑块量程随之解锁/更新（2026-11-15）
       comDramaSuggestFetch();   // 后台轻量探测片头/片尾边界，到货后自动预填（2026-09-20）
     };
     // 加载失败不再硬藏卡片 —— 让用户能继续操作，错误提示放在状态栏
@@ -16224,9 +16299,9 @@ el.dwVidPlayer.hidden = true;
   //   comMusicSync() 在音乐轨自己的初始化里调用。）
   if (el.comMaxChars && el.comMaxCharsVal) el.comMaxCharsVal.textContent = (Number(el.comMaxChars.value) === 0) ? '不限' : (Number(el.comMaxChars.value) + '字');
 
-  // 成片占原片比例：拖动实时刷新「前 N% / 不裁剪」+ 推荐风险提示，并初始化回显
+  // 缩短成片时长：拖动只刷读数/提示；起点终点或换片变化时由 comSyncTargetRange 重算量程
   if (el.comTargetMin) el.comTargetMin.addEventListener('input', comSyncTargetMinHint);
-  comSyncTargetMinHint();
+  comSyncTargetRange();
 
   // 来源互斥：选了下拉就清空本地文件
   el.comSource.addEventListener('change', () => {

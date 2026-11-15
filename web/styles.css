@@ -3533,6 +3533,28 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
   color: var(--text-mute); opacity: .85; margin-top: .2rem;
 }
 
+/* 缩短成片时长（2026-11-15 二次改）：右栏折叠卡。外层 details 承担卡框，内层去框透明，
+   避免「卡套卡」；窄右栏里滑块弹性填充、读数固定右侧同行，长说明自动换行不撑破列宽。 */
+#commentaryView .com-fold-card > .com-target-section {
+  background: none; border: none; border-radius: 0; margin: 0; grid-column: auto;
+  padding: .15rem .6rem .6rem; min-width: 0;
+}
+.com-target-full {
+  font-size: .74rem; color: var(--text-mute); line-height: 1.5;
+  margin-bottom: .45rem; word-break: break-word;
+}
+.com-target-full b { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+#commentaryView .com-target-section .com-opt-row { flex-wrap: nowrap; margin: 0; }
+#commentaryView .com-target-section input[type="range"] { flex: 1 1 auto; width: auto; min-width: 60px; }
+#commentaryView .com-target-section .com-vol-val {
+  flex: 0 0 auto; min-width: 5.6rem; text-align: right; font-size: .74rem;
+}
+#commentaryView .com-target-section input[type="range"]:disabled { opacity: .45; }
+/* 折叠头摘要在窄栏里收起态也要能看全，别被省略号砍掉关键数字 */
+#commentaryView .com-target-fold > .com-fold-head .com-fold-hint {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* 下拉项置灰（不可用项直接灰显不可选） */
 .com-select option:disabled { color: #b0b0b0; }
 .com-select option { font-size: .78rem; }
