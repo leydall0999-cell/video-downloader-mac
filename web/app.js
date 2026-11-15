@@ -11844,41 +11844,57 @@ el.dwVidPlayer.hidden = true;
     try { return btoa(unescape(encodeURIComponent(str))); }
     catch (e) { return ''; }
   };
-  const comGetCropSpec = () => {
+  /** withExtra=true 时追加界面新增的 !res / !font —— **只在渲染阶段**带。
+   *  script-only 走 comGetOptions() 把 crop_ratio 放到 JSON body 顶层，后端
+   *  CommentaryRequest 对它限长 32；渲染端点是 Form 字段、无长度限制，
+   *  所以新增后缀只放 render 的 FormData，既有 script-only 请求逐字节不变。 */
+  const comGetCropSpec = (withExtra = false) => {
     const base = comGetAspect();
+    let suffix = '';
     const onEl = document.getElementById('comRandOn');
-    if (!onEl || !onEl.checked) return base;
-    const modeEl = document.querySelector('input[name="comRandMode"]:checked');
-    const mode = modeEl ? modeEl.value : 'light';
-    let suffix = `!rand=${mode}`;
-    const noiseEl = document.getElementById('comRandNoise');
-    const filterEl = document.getElementById('comRandFilter');
-    const speedEl = document.getElementById('comRandSpeed');
-    const pitchEl = document.getElementById('comRandPitch');
-    const noise = noiseEl ? (parseInt(noiseEl.value, 10) || 0) : 0;
-    const filter = filterEl ? (parseFloat(filterEl.value) || 0) : 0;
-    let speed = speedEl ? (parseFloat(speedEl.value) || 1) : 1;
-    speed = Math.max(0.5, Math.min(1.5, speed));
-    const pitch = pitchEl ? (parseFloat(pitchEl.value) || 0) : 0;
-    if (noise > 0) suffix += `!noise=${noise}`;
-    if (filter > 0) suffix += `!filter=${filter.toFixed(2)}`;
-    if (Math.abs(speed - 1.0) > 0.001) suffix += `!speed=${speed.toFixed(3)}`;
-    if (Math.abs(pitch) > 0.001) suffix += `!pitch=${pitch.toFixed(2)}`;
-    // 水印：仅当用户勾选「叠加水印」时构造 wmcfg（后端：有文字→渲染文字；有 logo→用 logo；都无→静态默认）
-    const wmOnEl = document.getElementById('comRandWmOn');
-    if (wmOnEl && wmOnEl.checked) {
-      const wmTextEl = document.getElementById('comRandWmText');
-      const wmPosEl = document.getElementById('comRandWmPos');
-      const wmOpEl = document.getElementById('comRandWmOp');
-      const wmText = wmTextEl ? (wmTextEl.value || '').trim() : '';
-      const wmPos = (wmPosEl && wmPosEl.value) ? wmPosEl.value : 'br';
-      const wmOp = wmOpEl ? (parseFloat(wmOpEl.value) || 0.35) : 0.35;
-      const wmCfg = { t: wmText, pos: wmPos, op: wmOp };
-      if (comRandWmLogoB64) wmCfg.logo = comRandWmLogoB64;
-      const wmB64 = comB64EncodeUnicode(JSON.stringify(wmCfg));
-      if (wmB64) suffix += `!wmcfg=${wmB64}`;
+    if (onEl && onEl.checked) {
+      const modeEl = document.querySelector('input[name="comRandMode"]:checked');
+      const mode = modeEl ? modeEl.value : 'light';
+      suffix = `!rand=${mode}`;
+      const noiseEl = document.getElementById('comRandNoise');
+      const filterEl = document.getElementById('comRandFilter');
+      const speedEl = document.getElementById('comRandSpeed');
+      const pitchEl = document.getElementById('comRandPitch');
+      const noise = noiseEl ? (parseInt(noiseEl.value, 10) || 0) : 0;
+      const filter = filterEl ? (parseFloat(filterEl.value) || 0) : 0;
+      let speed = speedEl ? (parseFloat(speedEl.value) || 1) : 1;
+      speed = Math.max(0.5, Math.min(1.5, speed));
+      const pitch = pitchEl ? (parseFloat(pitchEl.value) || 0) : 0;
+      if (noise > 0) suffix += `!noise=${noise}`;
+      if (filter > 0) suffix += `!filter=${filter.toFixed(2)}`;
+      if (Math.abs(speed - 1.0) > 0.001) suffix += `!speed=${speed.toFixed(3)}`;
+      if (Math.abs(pitch) > 0.001) suffix += `!pitch=${pitch.toFixed(2)}`;
+      // 水印：仅当用户勾选「叠加水印」时构造 wmcfg（后端：有文字→渲染文字；有 logo→用 logo；都无→静态默认）
+      const wmOnEl = document.getElementById('comRandWmOn');
+      if (wmOnEl && wmOnEl.checked) {
+        const wmTextEl = document.getElementById('comRandWmText');
+        const wmPosEl = document.getElementById('comRandWmPos');
+        const wmOpEl = document.getElementById('comRandWmOp');
+        const wmText = wmTextEl ? (wmTextEl.value || '').trim() : '';
+        const wmPos = (wmPosEl && wmPosEl.value) ? wmPosEl.value : 'br';
+        const wmOp = wmOpEl ? (parseFloat(wmOpEl.value) || 0.35) : 0.35;
+        const wmCfg = { t: wmText, pos: wmPos, op: wmOp };
+        if (comRandWmLogoB64) wmCfg.logo = comRandWmLogoB64;
+        const wmB64 = comB64EncodeUnicode(JSON.stringify(wmCfg));
+        if (wmB64) suffix += `!wmcfg=${wmB64}`;
+      }
     }
-    return base + suffix;
+    let spec = base + suffix;
+    if (withExtra) {
+      const resEl = document.getElementById('comResScale');
+      const fontEl = document.getElementById('comBarFont');
+      const res = resEl ? (parseInt(resEl.value, 10) || 100) : 100;
+      const font = fontEl ? String(fontEl.value || '').trim() : '';
+      // 100% = 不改分辨率，不拼参数，保持老行为；80~99% = 整片等比缩小去指纹
+      if (res >= 50 && res < 100) spec += `!res=${res}`;
+      if (font) spec += `!font=${font}`;
+    }
+    return spec;
   };
 
   /** 把画幅选择解析成 vertical 布尔值，仅用于兼容旧后端/旧脚本（它们只认 vertical 开关）。
@@ -12775,7 +12791,7 @@ el.dwVidPlayer.hidden = true;
       form.append('vertical', String(resolveVertical()));
       // 画幅比例预设：随 FormData 单独下发（render 端点不接受整个 options 对象）。
       // 2026-11-13：comGetCropSpec 含指纹扰动后缀（!rand/!noise/!filter/!speed）。
-      form.append('crop_ratio', comGetCropSpec());
+      form.append('crop_ratio', comGetCropSpec(true));
       form.append('voice', comVoiceForBackend());
       const exportJy = comGetExportJianying();
       if (exportJy) form.append('export_jianying', exportJy);
@@ -16826,6 +16842,12 @@ el.dwVidPlayer.hidden = true;
     panel.innerHTML =
       '<label class="com-rand-row" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#c7ccd6;cursor:pointer;">' +
       '<input type="checkbox" id="comRandOn"> 降低重复检测（改视频指纹）</label>' +
+      '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #2a2f3a;">' +
+      '<div style="display:flex;justify-content:space-between;font-size:12px;color:#8a8f99;">' +
+      '<span>整片分辨率缩放（改视频大小去指纹）</span><span id="comResVal">100%（不改）</span></div>' +
+      '<input type="range" id="comResScale" min="80" max="100" step="1" value="100" style="width:100%;">' +
+      '<div style="font-size:11px;color:#6b7280;line-height:1.45;">100% 为原尺寸；调到 98% 即 1920×1080 → 1882×1058，' +
+      '等比缩小、一个角都不裁，每个像素重算从而改变平台指纹。不勾上面的开关也能单独使用。</div></div>' +
       '<div class="com-rand-adv" style="display:none;margin-top:8px;">' +
       '<div style="font-size:12px;color:#8a8f99;margin-bottom:4px;">随机强度（分辨率/取景/编码/metadata）</div>' +
       '<div style="display:flex;gap:10px;margin-bottom:8px;font-size:12px;color:#c7ccd6;">' +
@@ -16886,12 +16908,16 @@ el.dwVidPlayer.hidden = true;
     const wmLogoName = panel.querySelector('#comRandWmLogoName');
     const wmOpEl = panel.querySelector('#comRandWmOp');
     const wmOpVal = panel.querySelector('#comRandWmOpVal');
+    const resEl = panel.querySelector('#comResScale');
+    const resVal = panel.querySelector('#comResVal');
     const refresh = () => {
       if (noiseVal) noiseVal.textContent = noiseEl ? noiseEl.value : '0';
       if (filterVal) filterVal.textContent = (filterEl ? parseFloat(filterEl.value) : 0).toFixed(2);
       if (speedVal) speedVal.textContent = (speedEl ? parseFloat(speedEl.value) : 1).toFixed(2) + '×';
       if (pitchVal) pitchVal.textContent = (pitchEl ? parseFloat(pitchEl.value) : 0).toFixed(2);
       if (wmOpVal) wmOpVal.textContent = (wmOpEl ? parseFloat(wmOpEl.value) : 0.35).toFixed(2);
+      const rv = resEl ? (parseInt(resEl.value, 10) || 100) : 100;
+      if (resVal) resVal.textContent = rv === 100 ? '100%（不改）' : (rv + '%');
     };
     if (onEl) onEl.addEventListener('change', () => {
       if (adv) adv.style.display = onEl.checked ? 'block' : 'none';
@@ -16913,8 +16939,38 @@ el.dwVidPlayer.hidden = true;
       reader.onerror = () => { comRandWmLogoB64 = ''; if (wmLogoName) wmLogoName.textContent = '读取失败'; };
       reader.readAsDataURL(f);
     });
-    [noiseEl, filterEl, speedEl, pitchEl, wmOpEl].forEach((el) => { if (el) el.addEventListener('input', refresh); });
+    [noiseEl, filterEl, speedEl, pitchEl, wmOpEl, resEl].forEach((el) => { if (el) el.addEventListener('input', refresh); });
     refresh();
+  })();
+  // ---- 卡面字体选择（2026-11-15）：作用于剧集深度解说的信息栏 / 原创知识卡 ----
+  // 走 crop_ratio 规格串 !font=<key> 透传（前端拼、后端原样下发、管线解析），
+  // 前端与包内明文脚本即可热更，无需改冻结的 server/app.py。
+  (function initComBarFont() {
+    const row = document.getElementById('comTemplateRow');
+    if (!row) return;
+    const box = document.createElement('div');
+    box.className = 'com-row';
+    box.style.cssText = 'margin-top:6px;';
+    box.innerHTML =
+      '<div class="com-cell" style="flex:1;width:100%;padding:8px 10px;border:1px dashed #2a2f3a;border-radius:6px;box-sizing:border-box;">' +
+      '<div style="font-size:12px;color:#c7ccd6;margin-bottom:4px;">卡面字体（信息栏 / 知识卡）</div>' +
+      '<select id="comBarFont" style="width:100%;background:#1b1f2a;border:1px solid #2a2f3a;color:#c7ccd6;border-radius:4px;padding:4px 6px;font-size:12px;">' +
+      '<option value="">默认（思源宋体·衬线）</option>' +
+      '<option value="noto">思源宋体（衬线·历史正剧）</option>' +
+      '<option value="noto_sans">思源黑体（无衬线·都市现代）</option>' +
+      '<option value="xiaowei">站酷小薇（细宋·文艺抒情）</option>' +
+      '<option value="huangyou">庆科黄油体（圆胖·轻松喜剧）</option>' +
+      '<option value="kuaile">站酷快乐体（活泼·儿童综艺）</option>' +
+      '<option value="maobi">马善政毛笔楷书（书法·古装武侠）</option>' +
+      '<option value="longcang">龙藏体（硬笔手写·纪实日记）</option>' +
+      '<option value="dasong">汉仪大宋（本机需已安装）</option>' +
+      '<option value="kai">汉仪楷体（本机需已安装）</option>' +
+      '<option value="fangsong">汉仪仿宋（本机需已安装）</option>' +
+      '<option value="song">系统宋体（本机兜底）</option>' +
+      '</select>' +
+      '<div style="font-size:11px;color:#6b7280;line-height:1.45;margin-top:4px;">前 7 套为开源字体，首次使用自动从云端下载；' +
+      '后 4 套需本机已安装，缺失时自动回退系统宋体。选「默认」即保持原样。</div></div>';
+    row.insertAdjacentElement('afterend', box);
   })();
   // 初始化后按当前「解说类型」把不该参与的下拉灰掉
   applyComSelectEnabled();
