@@ -17605,7 +17605,8 @@ el.dwVidPlayer.hidden = true;
     } catch (_) { /* 后台缓存失败不打扰用户，下次再试 */ }
   };
   /** 曲库卡小圆钮试听（2026-11-15 用户「按钮小一点…再点击一次就暂停，放同一行」）：
-   *  同一首播放中→暂停；已暂停→从暂停处续播；换一首→停旧起新。云端曲起播后自动缓存到本地。 */
+   *  同一首播放中→暂停；已暂停→从暂停处续播；换一首→停旧起新。云端曲起播后自动缓存到本地。
+   *  提示走 comMusicCardTip（左栏卡片内的提示条），不写右栏弹窗的 comMusicHint。 */
   const comMusicCardAudition = async (t, btn) => {
     const tid = (t.id != null ? t.id : t.name);
     if (comMusicAuditionEl && comMusicAuditionTrackId === tid) {
@@ -17614,12 +17615,12 @@ el.dwVidPlayer.hidden = true;
         try {
           await a.play();
           if (btn) btn.textContent = '⏸';
-          comMusicHint('试听中：' + t.name + '（续播）', 'ok');
+          comMusicCardTip('试听中：' + t.name + '（续播）', 'ok');
         } catch (_) { comMusicStopAudition(); }
       } else {
         try { a.pause(); } catch (_) { /* 已停 */ }
         if (btn) btn.textContent = '▶';
-        comMusicHint('已暂停试听「' + t.name + '」（再点一次续播）');
+        comMusicCardTip('已暂停试听「' + t.name + '」（再点一次续播）');
       }
       return;
     }
@@ -17637,11 +17638,11 @@ el.dwVidPlayer.hidden = true;
       comMusicAuditionBtn = btn || null;
       if (btn) btn.textContent = '⏸';
       await a.play();
-      comMusicHint('试听中：' + t.name + (t.local ? '（已存到本机）' : '（云端在线试听）'), 'ok');
+      comMusicCardTip('试听中：' + t.name + (t.local ? '' : '（云端在线试听）'), 'ok');
       if (!t.local) comMusicCloudCacheBg(t);   // 试听过的曲子悄悄缓存到本地，下次不再加载
     } catch (e) {
       comMusicStopAudition();
-      comMusicHint('试听失败：' + ((e && e.message) || e), 'err');
+      comMusicCardTip('试听失败：' + ((e && e.message) || e), 'err');
     }
   };
   const comMusicCloudUse = async (t, btn) => {
