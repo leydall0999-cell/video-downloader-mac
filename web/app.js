@@ -13568,6 +13568,15 @@ el.dwVidPlayer.hidden = true;
     el.comScriptSegments.replaceChildren();
     el.comScriptStatus.hidden = true;
     currentScriptJobId = null;
+    // 🔴 2026-11-16 用户：「按了刷新界面怎么没有恢复原始状态」。旧实现只收了脚本面板，
+    //    顶部「继续审核 / 重新生成脚本」条与时间轴上的紫色段落轨还挂着上一份脚本，
+    //    肉眼看上去就像刷新没生效。这里把三处状态一并清干净。
+    currentScriptSegments = null;
+    currentScriptRangeStart = 0;
+    currentScriptAdDrafts = [];
+    if (currentScriptDeleted) currentScriptDeleted.clear();
+    if (el.comReviewActions) el.comReviewActions.hidden = true;
+    if (el.comScriptReopen) el.comScriptReopen.hidden = true;
     el.comProgress.hidden = true;
     el.comStatus.hidden = true;
     el.comFileStatus.hidden = true;
