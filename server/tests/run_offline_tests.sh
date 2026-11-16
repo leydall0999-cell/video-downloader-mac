@@ -1199,6 +1199,7 @@ run_one test_member_notice.py
 #     配套变异测试 tests/mutation_release_audit.py：6 项注入缺陷必须变红。
 run_one test_release_audit.py
 run_one test_retention_library_minimal.py   # I7：app 时效清理/媒体库路径护栏最小回归（零覆盖补盲）
+run_one test_retention_last_run.py          # 2026-11-16：自动清理空跑也要刷新 last_run
 
 
 # ---------------------------------------------------------------------------

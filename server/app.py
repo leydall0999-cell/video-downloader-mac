@@ -535,8 +535,11 @@ _commentary_lock = threading.Lock()
 #   • 16 位 = 64 bit 哈希 → 误撞概率可忽略（每天累计 GB 级视频）；磁盘按单文件存。
 COMMENTARY_STASH_DIR = COMMENTARY_LOCAL_OUTPUT / "stash"
 COMMENTARY_STASH_DIR.mkdir(parents=True, exist_ok=True)
+# 2026-11-16：14 天 → 3 天。stash 是「上传过的源视频冷缓存」（单个 0.6~0.8G），
+# 只用于再次上传同一视频时免传输；本机从本地磁盘重传很快，留 14 天纯属白占
+# 多个 G（实测 4 个视频 2.2G）。仍可用 VDL_COMMENTARY_STASH_RETENTION_DAYS 覆盖。
 COMMENTARY_STASH_RETENTION_DAYS = max(
-    1, int(os.environ.get("VDL_COMMENTARY_STASH_RETENTION_DAYS", "14") or 14)
+    1, int(os.environ.get("VDL_COMMENTARY_STASH_RETENTION_DAYS", "3") or 3)
 )
 _commentary_stash_lock = threading.Lock()
 _commentary_stash: dict[str, dict] = {}  # sha16 → {path, size, mtime, name, ext}
@@ -4382,6 +4385,35 @@ if SUB_ENABLED:
     _sub_watchdog = threading.Thread(target=_subscription_watchdog, name="vdl-sub-watchdog", daemon=True)
     _sub_watchdog.start()
 
+def _run_retention_once() -> dict | None:
+    """跑一轮时效清理，并**无条件**记录 last_run。
+
+    🔴 历史缺陷（2026-11-16 修）：此前把 `last_run` 写在
+    `if result["removed"] or result["failed"]` 里面 —— 跑完一圈但没有任何项到期
+    （保留期内、刚手动清过）就不写时间戳，界面「上次清理」长期停在某一天，
+    用户看到缓存还在，就以为自动清理没生效。`last_run` 的语义是「上次跑过」，
+    不是「上次删成功」；清理结果另用 last_removed / last_freed 表达。
+    """
+    cfg = retention_store.get()
+    try:
+        result = retention_mod.run(DOWNLOAD_DIR, cfg)
+    except Exception:  # noqa: BLE001
+        logger.exception("自动清理执行异常")
+        return None
+    try:
+        retention_store.update(last_run=result["ran_at"], last_freed=result["freed"],
+                               last_removed=result["removed"])
+    except Exception:  # noqa: BLE001
+        logger.exception("自动清理结果落盘失败")
+    if result["removed"] or result["failed"]:
+        logger.info("自动清理：移除 %s 项，释放 %s，失败 %s 项",
+                    result["removed"], retention_mod.human_size(result["freed"]),
+                    result["failed"])
+    else:
+        logger.debug("自动清理：扫描完成，无到期项")
+    return result
+
+
 def _retention_watchdog() -> None:
     """后台常驻：按 interval_hours 周期执行时效清理。
 
@@ -4395,16 +4427,7 @@ def _retention_watchdog() -> None:
         if not cfg.auto_enabled:
             time.sleep(min(interval, 1800))
             continue
-        try:
-            result = retention_mod.run(DOWNLOAD_DIR, cfg)
-            if result["removed"] or result["failed"]:
-                logger.info("自动清理：移除 %s 项，释放 %s，失败 %s 项",
-                            result["removed"], retention_mod.human_size(result["freed"]),
-                            result["failed"])
-                retention_store.update(last_run=result["ran_at"], last_freed=result["freed"],
-                                       last_removed=result["removed"])
-        except Exception:
-            logger.exception("自动清理执行异常")
+        _run_retention_once()
         time.sleep(interval)
 
 if RETENTION_ENABLED:
