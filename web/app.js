@@ -11492,9 +11492,10 @@ el.dwVidPlayer.hidden = true;
    * 缩短成片时长（2026-11-15 二次改）——用户三条反馈：
    *   ①「怎么是 60 分钟呢？应该读取视频剧集来的数据」→ 上限不再写死，改由剧集真实时长决定；
    *   ②「根据选择好的起点终点来决定整片的时长」→ 整片 = 终点 − 起点（留空则取视频总长）；
-   *   ③「只做缩短成片时间，不做拉长成片时长」→ 滑块值恒 ≤ 整片分钟数，管线只做截断、
+   *   ③「只做缩短成片时间，不做拉长成片时长」→ 滑块值恒 ≤ 整片分钟数，管线只削水时间、
    *      从不补画面（!dur= 的 _apply_target_minutes 本就如此），所以物理上无法「拉长」。
-   * 0 = 不缩短（跟随剪辑模板原行为）；>0 = 缩短成片到该分钟，在剧情断点收尾。
+   * 0 = 不缩短（跟随剪辑模板原行为）；>0 = 缩短到该分钟：剪掉空镜/停顿与没被解说的长段中段，
+   * 解说与片尾不动（2026-11-16 用户「不能从结尾直接截断」）。
    * ⚠️ 只经 render FormData 的 comGetCropSpec(true) 下发 !dur=，不进 script-only JSON body
    *    （crop_ratio 限长 32）；retain_pct 恒为 null，避免写稿阶段误裁剪。
    */
@@ -11562,7 +11563,7 @@ el.dwVidPlayer.hidden = true;
         msg = '⚠️ 接近整片：缩短很少，几乎等于原片连续播放，二创程度低、搬运审核风险偏高。';
       } else if (keep >= 0.6) {
         tone = 'ok';
-        msg = '✅ 推荐：缩短到 ' + v + ' 分钟（整片 ' + comSpanLabel(fullSec) + '），主线完整、在剧情断点收尾。';
+        msg = '✅ 推荐：缩短到 ' + v + ' 分钟（整片 ' + comSpanLabel(fullSec) + '），主线完整、只剪掉空镜和没解说的长段，片尾保留。';
       } else {
         tone = 'ok';
         msg = '✅ 明显缩短：原创解说占比高、审核更稳；剧情会跳得快些，适合短剧 / 片段。';
@@ -12018,9 +12019,9 @@ el.dwVidPlayer.hidden = true;
       // 100% = 不改分辨率，不拼参数，保持老行为；80~99% = 整片等比缩小去指纹
       if (res >= 50 && res < 100) spec += `!res=${res}`;
       if (font) spec += `!font=${font}`;
-      // 缩短成片时长（分钟）：>0 时下发 !dur=，管线从完整整片往下截、在剧情断点收尾，
-      // 只缩短不加画面；0=不拼，保持模板原有行为。仅 render 阶段带（Form 无限长，
-      // script-only 的 crop_ratio 限长 32，仍只发 comGetAspect()）。
+      // 缩短成片时长（分钟）：>0 时下发 !dur=，管线剪掉空镜/停顿与没被解说的长段中段
+      // （解说与片尾保留，不做结尾截断）；0=不拼，保持模板原有行为。仅 render 阶段带
+      // （Form 无限长，script-only 的 crop_ratio 限长 32，仍只发 comGetAspect()）。
       const targetMin = comGetTargetMin();
       if (targetMin > 0) spec += `!dur=${targetMin}`;
     }
