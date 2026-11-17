@@ -508,18 +508,24 @@ class TaskStore:
                 self._persist_locked()
 
     def request_cancel(self, task_id: str) -> bool:
-        """标记取消。仍在解析阶段（无进度回调）时直接置为已取消，让界面立即响应。"""
+        """标记取消。无进度回调阶段（解析/暂停中/线程已退出）直接置终态，让界面立即响应。"""
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None or task.is_finished:
                 return False
             task.cancel_requested = True
-            if task.status in ("pending", "paused"):
-                # pending：还没起线程；paused：线程已退出、没人再消费标志——
-                # 两者都必须就地置终态，否则「暂停中点取消」永远停不下来（2026-10-26）。
+            if task.status in ("pending", "paused", "pausing"):
+                # pending：还没起线程；paused：线程已退出、没人再消费标志；
+                # pausing：暂停信号卡在无回调阶段，孤儿线程也不会来读取消标志——
+                # 三者都必须就地置终态，否则「暂停中点取消」永远停不下来
+                # （2026-10-26 首修 pending/paused，2026-11-17 补 pausing：
+                #  用户实测「取消没反应」——pausing 是卡死高发态）。
                 task.status = "canceled"
                 task.error = "已取消下载"
                 task.add_step("排队等待", "error", "用户已取消")
+                # 代际自增：pausing 时孤儿下载线程可能仍阻塞在 socket，醒来后
+                # 不得把 canceled 覆盖成 completed/failed（同 _force_land_paused 守卫）。
+                task._run_gen = getattr(task, "_run_gen", 0) + 1
             self._persist_locked()
         return True
 

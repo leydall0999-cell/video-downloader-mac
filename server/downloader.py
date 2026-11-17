@@ -81,7 +81,8 @@ WATCHDOG_POLL = int(os.environ.get("VDL_WATCHDOG_POLL", "5"))  # 看门狗轮询
 # yt-dlp 进度钩子上，而这些阶段一条钩子都不发 ⇒ 标志永远没人消费。取消有主等待循环兜底，
 # 暂停此前没有 ⇒ 任务永久卡在 pausing（2026-10-27 用户实测：抖音分离轨下载中点暂停）。
 # 宽限超过该秒数仍没落地，就由主等待循环就地置 paused。
-PAUSE_FORCE_LAND_SECONDS = int(os.environ.get("VDL_PAUSE_FORCE_LAND", "30"))
+# 2026-11-17：用户实测 30s 宽限太久（「点暂停一直显示暂停中」），收缩到 5s。
+PAUSE_FORCE_LAND_SECONDS = int(os.environ.get("VDL_PAUSE_FORCE_LAND", "5"))
 
 def _macos_system_proxy() -> str:
     """读取 macOS 系统代理设置（系统偏好里开启的那个），返回 yt-dlp 可用的代理 URL。

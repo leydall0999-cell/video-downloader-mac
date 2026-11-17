@@ -2064,7 +2064,17 @@
       extractSave: node.querySelector('[data-extract-save]'),
       extractRetry: node.querySelector('[data-extract-retry]'),
     };
-    refs.cancel.addEventListener('click', () => cancelTask(taskId, refs.base || ''));
+    refs.cancel.addEventListener('click', async () => {
+      // 2026-11-17：取消加乐观反馈——后端已就地落终态，但 SSE/轮询最多 1.5s 才刷新，
+      // 先把按钮切到「取消中…」并禁用，避免用户觉得「点了没反应」；失败再回滚。
+      refs.cancel.textContent = '取消中…';
+      refs.cancel.disabled = true;
+      const ok = await cancelTask(taskId, refs.base || '');
+      if (!ok) {
+        refs.cancel.textContent = '取消';
+        refs.cancel.disabled = false;
+      }
+    });
     refs.togglePause.addEventListener('click', () => {
       const isPausedNow = refs.root.classList.contains('is-paused');
       if (isPausedNow) {
@@ -2525,6 +2535,11 @@
     // 合并/后处理/连接停滞阶段没有任何钩子，任务会长期停在 pausing；此前这里把取消
     // 一起隐藏，用户既等不到暂停、也点不了取消（死锁，用户实测「赞停中一直点不了取消」）。
     refs.cancel.hidden = isPaused;
+    // 2026-11-17：终态到来后把「取消中…」乐观文案复位，避免按钮永久停在中间态。
+    if (!active) {
+      refs.cancel.textContent = '取消';
+      refs.cancel.disabled = false;
+    }
     refs.root.classList.toggle('is-active', active);
     refs.root.classList.toggle('is-done', task.status === 'completed');
     refs.root.classList.toggle('is-error', task.status === 'failed' || task.status === 'canceled');
@@ -10877,9 +10892,11 @@ el.dwVidPlayer.hidden = true;
 
   const cancelTask = async (taskId, base = '') => {
     try {
-      const r = await request(`/api/tasks/${taskId}`, { method: 'DELETE' }, base);
+      await request(`/api/tasks/${taskId}`, { method: 'DELETE' }, base);
+      return true;
     } catch (error) {
       showError(error.message || '取消失败', error.hint);
+      return false;
     }
   };
 

@@ -387,6 +387,39 @@ def test_recovery_treats_pausing_as_interrupted():
     assert got.resumable is True
 
 
+# ============================================================ 2026-11-17 暂停/取消响应
+def test_pausing_cancel_lands_immediately():
+    """pausing 状态点取消必须立即落 canceled（用户实测「取消没反应」）。"""
+    with tempfile.TemporaryDirectory(prefix="vdl_cancel_pausing_") as td:
+        tstore = tasks_mod.TaskStore(Path(td) / "t", state_dir=Path(td) / "s")
+        task = tstore.create(url="https://e.com/v", title="t", platform="e", quality="1080p")
+        tstore.update(task.id, status="pausing")
+        task._run_gen = 3
+        assert tstore.request_cancel(task.id) is True
+        got = tstore.get(task.id)
+        assert got.status == "canceled", f"pausing 取消后仍停在 {got.status}"
+        assert got.cancel_requested is True
+        assert got._run_gen == 4, "代际未自增，孤儿线程醒来可能覆盖 canceled"
+
+
+def test_downloading_cancel_defers_to_worker():
+    """downloading 状态只置标志、终态仍由下载主循环落，不误伤正常取消流程。"""
+    with tempfile.TemporaryDirectory(prefix="vdl_cancel_dl_") as td:
+        tstore = tasks_mod.TaskStore(Path(td) / "t", state_dir=Path(td) / "s")
+        task = tstore.create(url="https://e.com/v", title="t", platform="e", quality="1080p")
+        tstore.update(task.id, status="downloading")
+        assert tstore.request_cancel(task.id) is True
+        got = tstore.get(task.id)
+        assert got.cancel_requested is True
+        assert got.status == "downloading", "downloading 取消不应被就地改终态"
+
+
+def test_pause_force_land_default_is_five_seconds():
+    """暂停兜底宽限默认 5s（2026-11-17 从 30s 收缩），防回退。"""
+    src = (Path(_SERVER_DIR) / "downloader.py").read_text(encoding="utf-8")
+    assert 'VDL_PAUSE_FORCE_LAND", "5"' in src, "暂停兜底宽限默认值不是 5s"
+
+
 # ============================================================ P2-21 登录门禁
 
 def test_idphoto_and_pagetool_are_login_gated():
