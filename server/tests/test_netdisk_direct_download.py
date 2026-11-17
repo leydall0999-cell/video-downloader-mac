@@ -152,8 +152,8 @@ class TestSourcing(unittest.TestCase):
         """暂停中的任务没有线程在消费标志，request_cancel 必须就地置终态。"""
         with open(os.path.join(SERVER_DIR, "tasks.py"), encoding="utf-8") as f:
             tsrc = f.read()
-        self.assertIn('task.status in ("pending", "paused")', tsrc,
-                      "request_cancel 必须同时覆盖 pending 与 paused")
+        self.assertIn('task.status in ("pending", "paused", "pausing")', tsrc,
+                      "request_cancel 必须同时覆盖 pending 与 paused（pausing 也须就地终态）")
 
 
 if __name__ == "__main__":
