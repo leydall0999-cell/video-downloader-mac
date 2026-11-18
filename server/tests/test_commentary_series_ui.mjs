@@ -58,10 +58,14 @@ ok(typeStart > 0, 'index.html 里找不到 comTypePanel（解说类型下拉）'
 const typeBlock = html.slice(typeStart, typeStart + 3000);
 
 const LEGACY = [
-  ['deep_hl', '高光处叠加深度解说'],
-  ['normal_hl', '高光部分普通解说'],
-  ['full_normal', '全片普通解说'],
-  ['full_deep', '全片深入解说'],
+  ['deep_hl', '高光·精讲'],
+  ['normal_hl', '高光·简述'],
+  ['full_normal', '全片·简述'],
+  ['full_deep', '全片·精讲'],
+  // 2026-11-18 用户要求改口径：原「高光处叠加深度解说 / 高光部分普通解说 /
+  // 全片普通解说 / 全片深入解说」与「解说方式」的「影视深度」字面撞车，
+  // 改为「讲哪部分 × 讲解深度」的组合写法。取值 deep_hl 等**一个没动**，
+  // 只是可见文案变了，所以这里锁的是新文案。
 ];
 for (const [val, label] of LEGACY) {
   ok(new RegExp(`data-value="${val}"[^>]*>${label}</button>`).test(typeBlock),
@@ -100,7 +104,7 @@ ok(/if template and template not in \("standard", "none", ""\):/.test(serverPy),
 // ---------- D. 灰化与联动 ----------
 ok(/const applyComTypeDisabled = \(\) => \{/.test(appJs),
   '缺少 applyComTypeDisabled（选剧集模板时「解说类型」应灰化而不是留着可点）');
-ok(/comTypeDropdown\.classList\.toggle\('is-disabled', isSeries\)/.test(appJs),
+ok(/comTypeDropdown\.classList\.toggle\('is-disabled',/.test(appJs),
   '解说类型灰化必须复用 .is-disabled 约定（styles.css:3297 已有样式）');
 ok(/applyComSelectEnabled = \(\) => \{[\s\S]{0,500}?applyComTypeDisabled\(\)/.test(appJs),
   'applyComSelectEnabled 未调用 applyComTypeDisabled —— 切换模板时灰化不会跟着更新');

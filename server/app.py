@@ -1994,7 +1994,7 @@ def _commentary_charge_on_success(job_id: str) -> None:
         logger.exception("解说产出后扣费异常（不影响成片交付）job=%s", job_id)
 
 
-def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit_only: str | None = None, script_only: bool = False, trim_start: float = 0.0, trim_end: float = 0.0, mode: str | None = None, template: str = "standard", commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, title: str = "", style: str = "none", style_intensity: int = 65, src_filename: str = "", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", bgm: str = "off", bgm_file: str = "", bgm_volume: float = 0.18, bgm_clip_start: float | None = None, bgm_clip_end: float | None = None, bgm_offset: float | None = None, subtitle_size: float = 1.0, subtitle_color: str = "FFFFFF", subtitle_border: float = 1.0, subtitle_border_color: str = "000000", subtitle_pos: str = "bottom", max_chars: int = 0, original_speed: bool = True, feather_opt: str = "", crop_ratio: str = "") -> None:
+def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit_only: str | None = None, script_only: bool = False, trim_start: float = 0.0, trim_end: float = 0.0, mode: str | None = None, template: str = "standard", commentary_type: str = "deep_hl", highlight_source: str = "ai", intro_highlight: bool = False, skip_intro_outro: bool = False, no_narrate_intro_outro: bool = True, retain_pct: float | None = None, web: bool = False, one_click: bool = False, title: str = "", style: str = "none", style_intensity: int = 65, src_filename: str = "", vision: bool = False, tts_provider: str = "", correct_transcript: str = "", ocr_subtitles: bool = True, intro_sec: float | None = None, outro_sec: float | None = None, drama_start_sec: float | None = None, drama_end_sec: float | None = None, export_jianying: str = "", bgm: str = "off", bgm_file: str = "", bgm_volume: float = 0.18, bgm_clip_start: float | None = None, bgm_clip_end: float | None = None, bgm_offset: float | None = None, subtitle_size: float = 1.0, subtitle_color: str = "FFFFFF", subtitle_border: float = 1.0, subtitle_border_color: str = "000000", subtitle_pos: str = "bottom", max_chars: int = 0, original_speed: bool = True, feather_opt: str = "", crop_ratio: str = "") -> None:
     """后台线程：把下载好的视频喂给 commentary-pipeline，等成片回传。
 
     复用用户现成的 process.py 整条管线（whisper 转写 → edge-tts 配音 → ffmpeg 出片），
@@ -2193,6 +2193,10 @@ def _commentary_run(job_id: str, src_path: str, vertical: bool, voice: str, edit
         # Stage1 只看压缩后的 8000 字、Stage2 高光模式只发关键片段，性价比很低。
         # 留空/None/'0' 一律按关闭处理，保证不设置环境变量时行为也确定。
         run_env["VDL_CORRECT_TRANSCRIPT"] = "1" if correct_transcript == "1" else "0"
+        # 硬字幕识别（2026-11-18）：默认开。本机 Apple Vision 读画面底部烧死的字幕，
+        # 与 ASR 稿融合——ASR 定时间轴、画面原话当逐字真值，专有名词错误大幅下降。
+        # 纯本机、不联网、不花钱，只多花几分钟；关掉即完全回到纯 ASR 老行为。
+        run_env["VDL_OCR_SUBTITLES"] = "1" if ocr_subtitles else "0"
         if vision:
             # 视觉理解与片头集数卡检测共用 VDL_VISION_* 配置；显式启用避免子进程因环境变量未设而跳过
             run_env["VDL_VISION_ENABLED"] = "1"
@@ -3155,6 +3159,9 @@ class CommentaryRequest(BaseModel):
     vision: bool = Field(default=False, description="视觉理解：抽帧调多模态模型补全无声/纯画面段落（需配置 VDL_VISION_*）")
     tts_provider: str = Field(default="", max_length=32, description="TTS 服务商: 空=默认 edge; indextts2=本地 IndexTTS2 语音克隆(需先起推理服务); minimax/siliconflow=云端")
     correct_transcript: str = Field(default="", max_length=32, description="转写稿 ASR 校正: '0'=关闭(省 token); 空=默认开启(LLM 修正同音错字/专有名词)")
+    ocr_subtitles: bool = Field(default=True,
+                                description="硬字幕识别: 读画面底部烧死的字幕校正台词稿(本机 Apple Vision, 免费)。"
+                                            "默认开启; 关掉可省几分钟。源片自带字幕轨或画面无字幕时自动跳过")
     mode: str | None = Field(default=None,
                              description="(旧版兼容) 三选一解说模式，会被上面的新选项覆盖")
     export_jianying: str = Field(default="", max_length=2048,

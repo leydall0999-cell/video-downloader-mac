@@ -2687,7 +2687,7 @@
     <ol class="howto-steps">
       <li>左栏「素材来源」选一部媒体库里的视频，或点「<b>📁 从本地文件生成</b>」。</li>
       <li>在「预览与正剧范围」里拖动滑块标出正片起止（默认自动检测，可留空）。</li>
-      <li>右栏选解说类型与音色，点中栏「<b>生成脚本</b>」。</li>
+      <li>右栏选讲解深度与音色，点中栏「<b>生成脚本</b>」。</li>
       <li>在审核面板里逐句修改解说词，确认无误后点「<b>🎬 生成成片</b>」。</li>
     </ol>
     <p class="howto-note">首次使用需下载解说环境（约 2.4GB）；历史成片可在「📂 解说历史」里找回。</p>
@@ -3098,19 +3098,20 @@
       </div>
       <!-- ===== 第 1 行：5 个下拉 trigger 横排 ===== -->
       <div class="com-row com-row-1" data-page-node-id="VawhqAxHpo1erBvfgcHNVF">
-        <!-- 解说类型（自定义下拉） -->
+        <!-- 讲解深度（2026-11-18 用户：「讲解范围改为讲解深度」）：
+             一个下拉统管「讲哪部分 × 讲多细」的四档组合。 -->
         <div class="com-cell com-cell-trigger" data-page-node-id="ndHKfmEpgI2rL6wSDNcmPy">
-          <div class="com-opt-title" data-page-node-id="itV9kjfQ7GuPiM6yxRl7yB">解说类型</div>
+          <div class="com-opt-title" data-page-node-id="itV9kjfQ7GuPiM6yxRl7yB">讲解深度</div>
           <div class="com-mode-dropdown" id="comTypeDropdown" data-page-node-id="DLfZzHwy5dO8sAbyvjHAZg">
             <button type="button" class="com-mode-dropdown-toggle" id="comTypeBtn" aria-haspopup="listbox" aria-expanded="false" data-page-node-id="2Vp6acl5yAOlD5O8ip6bFo">
-              <span class="com-mode-dropdown-label" id="comTypeBtnLabel" data-page-node-id="j0526XZOrmEXONq25GsCq3">解说类型</span>
+              <span class="com-mode-dropdown-label" id="comTypeBtnLabel" data-page-node-id="j0526XZOrmEXONq25GsCq3">讲解深度</span>
               <span class="com-mode-dropdown-caret" aria-hidden="true" data-page-node-id="TJqO6GM8UwFLqiSqqKpIfe">▾</span>
             </button>
             <div class="com-mode-dropdown-panel" id="comTypePanel" role="listbox" hidden data-page-node-id="Poy74SgtFHnBmzCkYvORAw">
-              <button type="button" class="com-mode-dropdown-option is-selected" data-value="deep_hl" role="option" data-page-node-id="o9WY9sJ0GkKbWE9OU17pep">高光处叠加深度解说</button>
-              <button type="button" class="com-mode-dropdown-option" data-value="normal_hl" role="option" data-page-node-id="ZGL5qLZ0JYAmIco4FRu0o0">高光部分普通解说</button>
-              <button type="button" class="com-mode-dropdown-option" data-value="full_normal" role="option" data-page-node-id="oEDxixs1yh3Maf7jSM0GKS">全片普通解说</button>
-              <button type="button" class="com-mode-dropdown-option" data-value="full_deep" role="option" data-page-node-id="gupVcOduaCl7bsSaHZdvUm">全片深入解说</button>
+              <button type="button" class="com-mode-dropdown-option is-selected" data-value="deep_hl" role="option" data-page-node-id="o9WY9sJ0GkKbWE9OU17pep">高光·精讲</button>
+              <button type="button" class="com-mode-dropdown-option" data-value="normal_hl" role="option" data-page-node-id="ZGL5qLZ0JYAmIco4FRu0o0">高光·简述</button>
+              <button type="button" class="com-mode-dropdown-option" data-value="full_normal" role="option" data-page-node-id="oEDxixs1yh3Maf7jSM0GKS">全片·简述</button>
+              <button type="button" class="com-mode-dropdown-option" data-value="full_deep" role="option" data-page-node-id="gupVcOduaCl7bsSaHZdvUm">全片·精讲</button>
             </div>
             <input type="radio" name="comType" value="deep_hl" checked hidden data-page-node-id="KvLz5dxG7HxPRTxADbRYzr" />
             <input type="radio" name="comType" value="normal_hl" hidden data-page-node-id="wFtklL9jgsPBJIT29551Xq" />
@@ -3160,6 +3161,17 @@
           <label class="com-highlights-toggle" data-page-node-id="BxIHVJnwu1bmRj8kWus74v">
             <input type="checkbox" id="comVision" checked data-page-node-id="30aLHB0UOXlGChQPjmC9Xr" />
             <span data-page-node-id="hJpuQnajXHvvp3EbE2QB4Y"><b data-page-node-id="H6iamx35Qs1sySSd9pUpzL">启用视觉理解</b></span>
+          </label>
+        </div>
+        <!-- 硬字幕识别（2026-11-18 用户：「设置里给个开关，默认开，不想用就关掉」）：
+             本机 Apple Vision 逐帧读画面底部烧死的字幕，与语音转写稿融合——
+             语音定时间轴、画面原话当逐字真值，专有名词错字大幅减少。
+             纯本机、不联网、不花钱，代价是多花几分钟。关掉即完全回到纯语音老行为。 -->
+        <div class="com-cell" style="flex:0 0 auto" data-page-node-id="comOcrCell">
+          <label class="com-highlights-toggle" title="读画面底部的字幕来校正台词：本机识别、不联网、不花钱，多花几分钟；关掉则只用语音转写"
+                 data-page-node-id="comOcrLabel">
+            <input type="checkbox" id="comOcrSubtitles" checked data-page-node-id="comOcrSubtitles" />
+            <span data-page-node-id="comOcrText"><b>硬字幕识别</b></span>
           </label>
         </div>
         <!-- 配音引擎下拉已搬进右栏「配音与音量」卡（2026-09-19 用户：「这个也得一起挪」
@@ -3404,40 +3416,60 @@
         <span class="com-status com-vol-status" id="comVolStatus" hidden data-page-node-id="H6LFK6FHhW4jZ2cy0HIxr7"></span>
       </details>
 
-      <!-- 解说风格：与上方各卡同款折叠卡（2026-09-21 用户：「你就不能跟上面一样可以收起来吗」）。
-           默认收起；摘要实时显示「当前风格 · 强度 n」，收起时也能一眼看清当前选择。 -->
-      <details class="com-fold-card com-style-fold" id="comStyleFold" data-page-node-id="comStyleFold">
-        <summary class="com-fold-head" data-page-node-id="comStyleFoldHead">
-          <span class="com-fold-title" data-page-node-id="comStyleFoldTitle">🎭 解说风格</span>
-          <span class="com-fold-hint" id="comStyleFoldHint" data-page-node-id="comStyleFoldHint">默认 · 强度 65</span>
+      <!-- ============ 说话语气（2026-11-18 用户：「分开，分为两个，不要放一个里面」）============
+           comTone＝旁白用什么口吻说话（搞笑/严肃/霸道/愤青/悬疑/治愈/毒舌）。
+           与下面「解说方式」是两张各自独立、可分别收起的折叠卡，互不混装。
+           默认收起；摘要实时显示「当前语气 · 强度 n」，收起时也能一眼看清。 -->
+      <details class="com-fold-card com-style-fold" id="comToneFold" data-page-node-id="comToneFold">
+        <summary class="com-fold-head" data-page-node-id="comToneFoldHead">
+          <span class="com-fold-title" data-page-node-id="comToneFoldTitle">🎭 说话语气</span>
+          <span class="com-fold-hint" id="comToneFoldHint" data-page-node-id="comToneFoldHint">默认语气 · 强度 65</span>
         </summary>
-        <div class="com-opts com-style-section" data-page-node-id="Sz5nRE8swHna6brNFDH63B">
-      <!-- data-com-select-inline：本块**不做下拉化**（10 个 2~4 字短标签用内联胶囊更合适；
-           下拉浮层从触发器一路拉到底会盖住下面的「风格强度」卡与提示）→ initComSelect 见此属性跳过 -->
-      <div class="com-opt-block com-opt-block-full" data-com-select="comStyle" data-com-select-inline data-page-node-id="GrZyAzBYPmx2INqrg1yyn2">
-        <div class="com-opt-title" data-page-node-id="GrZyAzBYPmx2INqrg1yyn2-t">解说风格</div>
-        <div class="com-opt-row com-opt-row-styles" data-page-node-id="BtyKx0Ef2J21UrRt1gqk2P">
-          <label class="com-mode-option" data-page-node-id="DI7aqavCIlVd6TuFvN3iLY"><input type="radio" name="comStyle" value="none" checked data-page-node-id="Aktc2tipP1Goch9C12JdNF" /><span data-page-node-id="o4BgkCGxFL2RxEzhV5AE91"><b data-page-node-id="iwQCa6CF0psPLQHZnAz3zO">默认</b></span></label>
-          <label class="com-mode-option" data-page-node-id="EEMY73ZI6K6UV7zq1GAyDJ"><input type="radio" name="comStyle" value="funny" data-page-node-id="PxuO9WX6A0WSgdMADzzgGE" /><span data-page-node-id="uPuXbNo8BgbQqK2TWdyyMT">搞笑</span></label>
-          <label class="com-mode-option" data-page-node-id="lRKDAj1e9tGwNobLNdGuRA"><input type="radio" name="comStyle" value="serious" data-page-node-id="OZ0A3INeGd0NL5ZeEbAdxo" /><span data-page-node-id="wrNx37XrVq38IHAGRyV4Dj">严肃</span></label>
-          <label class="com-mode-option" data-page-node-id="tqR1YN5ZcsjQAP8P6Cnw16"><input type="radio" name="comStyle" value="domineering" data-page-node-id="mb3Pm4V9rSGFnpogv4XHEI" /><span data-page-node-id="XqICXM5JgJbuci89ybMizt">霸道</span></label>
-          <label class="com-mode-option" data-page-node-id="s8uzdeEP5pLkeqMX1B90EZ"><input type="radio" name="comStyle" value="angry" data-page-node-id="yfB6t3vJQVNHhmb1Pssx3G" /><span data-page-node-id="Qd7gCPccRVk4pAFSJx5QAN">愤青</span></label>
-          <label class="com-mode-option" data-page-node-id="MraiASlSrTDLS70BupCrzi"><input type="radio" name="comStyle" value="suspense" data-page-node-id="WiK0icUVkP7uQeqM6dm4QE" /><span data-page-node-id="pYHsqRiWSoPC043ApzbeJy">悬疑</span></label>
-          <label class="com-mode-option" data-page-node-id="hDDPpRG0om3eu29EVXtC3P"><input type="radio" name="comStyle" value="healing" data-page-node-id="xsdHMDXb4fds8ZE9cYuicb" /><span data-page-node-id="OQVxN6MTmhJWAlDIPNerPg">治愈</span></label>
-          <label class="com-mode-option" data-page-node-id="TwdOKRFARhpS51659EGudX"><input type="radio" name="comStyle" value="sarcastic" data-page-node-id="TAbRADcjCIa8FsA7G7940F" /><span data-page-node-id="QCc7UAS1vSBdRBVBHuXI0N">毒舌</span></label>
-          <label class="com-mode-option" data-page-node-id="RyN7KkRFOjDvQQ2zJhyScX"><input type="radio" name="comStyle" value="short_drama" data-page-node-id="bFZm9R50FFpsWT3RIKrs45" /><span data-page-node-id="ioOAocYYrkv0LSFKvOeTIE">短剧解说</span></label>
-          <label class="com-mode-option" data-page-node-id="UnPIUyfOvIuXYgzxOa6Rcx"><input type="radio" name="comStyle" value="movie" data-page-node-id="X0kCajUUQlhOj8mv7QMEBg" /><span data-page-node-id="Bh8DG7xMqkbe7yEK8XlJYN">影视深度</span></label>
+        <div class="com-opts com-style-section" data-page-node-id="comToneFoldBody">
+          <div class="com-opt-block com-opt-block-full" data-com-select="comTone" data-com-select-inline>
+            <div class="com-opt-title">旁白用什么口吻说</div>
+            <div class="com-opt-row com-opt-row-styles">
+              <label class="com-mode-option"><input type="radio" name="comTone" value="none" checked /><span><b>默认</b></span></label>
+              <label class="com-mode-option"><input type="radio" name="comTone" value="funny" /><span>搞笑</span></label>
+              <label class="com-mode-option"><input type="radio" name="comTone" value="serious" /><span>严肃</span></label>
+              <label class="com-mode-option"><input type="radio" name="comTone" value="domineering" /><span>霸道</span></label>
+              <label class="com-mode-option"><input type="radio" name="comTone" value="angry" /><span>愤青</span></label>
+              <label class="com-mode-option"><input type="radio" name="comTone" value="suspense" /><span>悬疑</span></label>
+              <label class="com-mode-option"><input type="radio" name="comTone" value="healing" /><span>治愈</span></label>
+              <label class="com-mode-option"><input type="radio" name="comTone" value="sarcastic" /><span>毒舌</span></label>
+            </div>
+          </div>
+          <div class="com-fold-card com-style-card" data-page-node-id="comStyleIntensityWrap">
+            <div class="com-style-card-head">
+              <label class="com-fold-title" for="comStyleIntensity" data-page-node-id="comStyleIntensityLabel">🎚 风格强度</label>
+              <input type="range" id="comStyleIntensity" class="com-style-range" min="0" max="100" value="65" step="5" title="默认 65：口吻鲜明但不夸张，全片保持一致调性；调低更克制自然，调高风格表现力更强" data-page-node-id="comStyleIntensity" />
+              <span class="com-style-val" id="comStyleIntensityVal" data-page-node-id="comStyleIntensityVal">65</span>
+            </div>
+            <p class="com-style-note" data-page-node-id="comStyleIntensityHint">弱 → 强（默认 65）；调低更克制自然</p>
+          </div>
+          <p class="com-style-hint" id="comStyleHint" data-page-node-id="dCUvaY0nB7rEDAZ0uBfsG9">默认语气：音色由下方「全局配音」决定。</p>
         </div>
-      </div>
-      <div class="com-fold-card com-style-card" data-page-node-id="comStyleIntensityWrap">
-        <div class="com-style-card-head">
-          <label class="com-fold-title" for="comStyleIntensity" data-page-node-id="comStyleIntensityLabel">🎚 风格强度</label>
-          <input type="range" id="comStyleIntensity" class="com-style-range" min="0" max="100" value="65" step="5" title="默认 65：口吻鲜明但不夸张，全片保持一致调性；调低更克制自然，调高风格表现力更强" data-page-node-id="comStyleIntensity" />
-          <span class="com-style-val" id="comStyleIntensityVal" data-page-node-id="comStyleIntensityVal">65</span>
-        </div>
-        <p class="com-style-note" data-page-node-id="comStyleIntensityHint">弱 → 强（默认 65）；调低更克制自然</p>
-      </div>
-      <p class="com-style-hint" id="comStyleHint" data-page-node-id="dCUvaY0nB7rEDAZ0uBfsG9">默认风格：音色由下方「全局配音」决定。</p>
+      </details>
+
+      <!-- ============ 解说方式（与说话语气拆开成独立卡）============
+           comNarrationMode＝整篇文案怎么组织（常规解说/短剧解说/影视深度/聊观点）。
+           与「说话语气」两个维度正交、自由组合、各自真正生效；
+           data-com-select-inline＝保持内联胶囊、不下拉化。 -->
+      <details class="com-fold-card com-style-fold" id="comNarrationModeFold" data-page-node-id="comNarrationModeFold">
+        <summary class="com-fold-head" data-page-node-id="comNarrationModeFoldHead">
+          <span class="com-fold-title" data-page-node-id="comNarrationModeFoldTitle">🧭 解说方式</span>
+          <span class="com-fold-hint" id="comModeFoldHint" data-page-node-id="comModeFoldHint">常规解说</span>
+        </summary>
+        <div class="com-opts com-style-section" data-page-node-id="comNarrationModeFoldBody">
+          <div class="com-opt-block com-opt-block-full" data-com-select="comNarrationMode" data-com-select-inline>
+            <div class="com-opt-title">整篇文案怎么组织</div>
+            <div class="com-opt-row com-opt-row-styles">
+              <label class="com-mode-option"><input type="radio" name="comNarrationMode" value="none" checked /><span><b>常规解说</b></span></label>
+              <label class="com-mode-option"><input type="radio" name="comNarrationMode" value="short_drama" /><span>短剧解说</span></label>
+              <label class="com-mode-option"><input type="radio" name="comNarrationMode" value="movie" /><span>影视赏析</span></label>
+              <label class="com-mode-option"><input type="radio" name="comNarrationMode" value="viewpoint" /><span>聊观点</span></label>
+            </div>
+          </div>
         </div>
       </details>
 

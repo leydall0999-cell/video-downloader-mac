@@ -594,6 +594,7 @@
     comDramaEnd: $('comDramaEnd'),
     comCorrectTranscript: $('comCorrectTranscript'),
     comVision: $('comVision'),
+    comOcrSubtitles: $('comOcrSubtitles'),
     comStepsPanel: $('comStepsPanel'),
     comStepsNow: $('comStepsNow'),
     comStepsList: $('comStepsList'),
@@ -1680,6 +1681,27 @@
 
   // ------------------------------------------------------------------ 提示
 
+  // 🔴 用户 2026-11-17：「一大串代码用户看不懂，以为坏了，就写简单点——网络中断请检查网络连接」。
+  // 把后端抛来的技术日志（退出码 / 最近输出 / [config] / [预检] / Traceback / 英文异常 /
+  // 网址路径等）统一压成一句大白话；已经是友好中文的提示（会员、配额、登录等）原样返回，绝不误伤。
+  // 只做「识别技术特征→翻译」，不做「一切皆网络」的粗暴覆盖，避免把真实业务错误藏掉。
+  const _plainError = (raw) => {
+    let s = String(raw == null ? '' : (raw.message || raw.error || raw));
+    s = s.trim();
+    if (!s) return '操作失败，请稍后重试';
+    const lower = s.toLowerCase();
+
+    // 网络类：明确的网络故障信号 → 一句大白话
+    const NET = /网络中断|网络异常|网络连接|连不上|无法连接|连接失败|端点连不上|无路由|gaierror|enetunreach|ehostunreach|errno\s*(51|65)|failed to fetch|load failed|networkerror|network error|connectionerror|connection refused|timed?\s*out|超时|请求超时|abort/i;
+    // 技术日志类：这些特征说明「这是给程序员看的原始输出，不该给用户看」
+    const TECH = /退出码|最近输出|\[config\]|\[precheck\]|\[预检\]|traceback|exception|error:|http:\/\/|https:\/\/|\/applications\/|\.py"|\.py\s*,|\.py:|file "|at\s+\w+\s*\(|errno\s+\d+|0x[0-9a-f]{4}/i;
+
+    if (NET.test(s)) return '网络中断，请检查网络连接后重试';
+    if (TECH.test(s) || /\n/.test(s)) return '生成失败，请稍后重试；如果一直不行，请检查网络';
+    // 无技术特征的短句（本身就是人话，如「今日免费下载次数已用完」）原样返回
+    return s;
+  };
+
   // 把 WebKit 原始网络错误（load failed / Failed to fetch / NetworkError）
   // 转成用户友好的中文提示，避免用户看到吓人的技术报错。
   const _friendlyNetworkError = (msg) => {
@@ -1721,6 +1743,8 @@
     // 网络层原始错误 → 友好提示
     const net = _friendlyNetworkError(msg);
     if (net) { msg = net.message; h = h || net.hint; }
+    // 后端技术日志（退出码/最近输出/异常栈/网址等）→ 一句大白话；友好中文原样返回。
+    msg = _plainError(msg);
 
     // —— 按错误分类做视觉区分 + 针对性行动建议 ——
     // category 由后端 _friendly_error 产出（cookie_required / cdn_forbidden /
@@ -11271,7 +11295,7 @@ el.dwVidPlayer.hidden = true;
           comAnnounceFinished(job_id, outName, refs, jobBill);
         } else if (st.status === 'failed') {
           clearInterval(poll);
-          refs.commentaryStatus.textContent = `生成失败：${st.error || '未知错误'}`;
+          refs.commentaryStatus.textContent = `生成失败：${_plainError(st.error)}`;
           if (refs.commentary) {
             refs.commentary.disabled = false;
             refs.commentary.textContent = '重试生成解说';
@@ -11622,7 +11646,6 @@ el.dwVidPlayer.hidden = true;
   const comGetOptions = () => {
     const typeEl = document.querySelector('input[name="comType"]:checked');
     const srcEl = document.querySelector('input[name="comHlSource"]:checked');
-    const styleEl = document.querySelector('input[name="comStyle"]:checked');
     // 正剧边界只保留「绝对时间」一处（片头/片尾秒数 UI 已下线：与它同侧互斥、完全等价，
     // 而这里本就接受纯秒数写法；后端 intro_sec/outro_sec 参数保留供外部调用兼容）
     // 片头片尾 2 选 1：默认「保留·不解说」（绝对不解说片头片尾）
@@ -11657,13 +11680,16 @@ el.dwVidPlayer.hidden = true;
       no_narrate_intro_outro,
       drama_start_sec: dramaStart,
       drama_end_sec: dramaEnd,
-      style: styleEl ? styleEl.value : 'none',
+      // 2026-11-18：语气 × 方式两个正交维度，组合成 "tone|mode"（都默认则 "none"）。
+      style: comCurrentStyle(),
       style_intensity: (() => { const si = document.getElementById('comStyleIntensity'); return si ? (parseInt(si.value, 10) || 65) : 65; })(),
       vision: !!(el.comVision && el.comVision.checked),
       tts_provider: el.comTtsProvider ? el.comTtsProvider.value : '',
       // 后端 CommentaryRequest.correct_transcript 是 str('1'=开/'0'=关)，勿发布尔（bool 会 422）。
       // 2026-09-19：ASR 校正改为 opt-in（默认关，省一次万级 token 调用），勾选才传 '1'。
       correct_transcript: (el.comCorrectTranscript && el.comCorrectTranscript.checked) ? '1' : '0',
+      // 硬字幕识别（2026-11-18）：bool，默认开。本机读画面字幕校正台词，关掉省几分钟。
+      ocr_subtitles: !!(el.comOcrSubtitles && el.comOcrSubtitles.checked),
       export_jianying: comGetExportJianying(),
       // 音乐轨（2026-09-18）：状态在 comMusic（原 comBgm* 元素 2026-09-15 随「成片增强」块删除，
       // 保留的 el.comBgm 引用恒为 null → 配乐一直是 off）。用 (comMusic || {}) 兜住初始化顺序。
@@ -12229,7 +12255,7 @@ el.dwVidPlayer.hidden = true;
           el.comProgress.hidden = true;
           el.comScriptPanel.hidden = true;
           el.comReviewActions.hidden = true;
-          el.comStatus.textContent = `生成失败：${st.error || '未知错误'}`;
+          el.comStatus.textContent = `生成失败：${_plainError(st.error)}`;
           if (el.comGenerateRow) el.comGenerateRow.hidden = false;  // 失败：底部入口回来
           el.comGenerateScript.disabled = false;
           el.comGenerateScript.textContent = '重试生成脚本';
@@ -12675,7 +12701,7 @@ el.dwVidPlayer.hidden = true;
       // 2026-10-24：记住上次选的音色（尤其是「我的音色」），下次打开解说默认沿用，
       // 不用每次重新选 / 重新录（用户诉求：录好的声音要自动保存、自动用上）。
       const _savedVoice = (() => { try { return localStorage.getItem('vdl_com_voice_choice') || ''; } catch (_) { return ''; } })();
-      comFillScriptVoice(_savedVoice || STYLE_VOICE[comCurrentStyle()] || 'zh-CN-XiaoxiaoNeural');
+      comFillScriptVoice(_savedVoice || comCurrentVoice());
 
       // 逐段渲染可编辑行
       const segs = data.segments || [];
@@ -13379,6 +13405,9 @@ el.dwVidPlayer.hidden = true;
     suspense:    'zh-CN-YunjianNeural',   // 悬疑：沉稳男声（低沉神秘）
     healing:     'zh-CN-XiaoxiaoNeural',  // 治愈：温柔女声
     sarcastic:   'zh-CN-YunyangNeural',   // 毒舌：新闻腔男声（犀利冷幽默）
+    short_drama: 'zh-CN-YunxiaNeural',    // 短剧解说（方式）：青年男声（节奏明快）
+    movie:       'zh-CN-YunjianNeural',   // 影视深度（方式）：沉稳男声（厚重有分析感）
+    viewpoint:   'zh-CN-YunjianNeural',   // 聊观点（方式）：沉稳男声（笃定、有判断感）
   };
 
   /** 「全局配音」下拉里的克隆音色哨兵值（2026-09-20）。
@@ -13405,7 +13434,7 @@ el.dwVidPlayer.hidden = true;
       oc.textContent = '🎤 我的音色（克隆）';
       el.comScriptVoice.appendChild(oc);
     }
-    const linkedVoice = STYLE_VOICE[comCurrentStyle()] || 'zh-CN-XiaoxiaoNeural';
+    const linkedVoice = comCurrentVoice();
     COM_VOICES.forEach((v) => {
       const o = document.createElement('option');
       o.value = v.value;
@@ -13422,7 +13451,7 @@ el.dwVidPlayer.hidden = true;
    *  克隆没生效时仍有正常旁白兜底，而不是把一个非法音色名丢给后端。 */
   const comVoiceForBackend = () => {
     const v = el.comScriptVoice ? el.comScriptVoice.value : '';
-    if (v === COM_CLONE_VOICE) return STYLE_VOICE[comCurrentStyle()] || 'zh-CN-XiaoxiaoNeural';
+    if (v === COM_CLONE_VOICE) return comCurrentVoice();
     return v;
   };
 
@@ -13442,28 +13471,62 @@ el.dwVidPlayer.hidden = true;
     return hit ? hit.label : (v || '默认');
   };
 
-  /** 当前选中的解说风格 key（默认 none）。 */
+  // ── 解说风格 = 说话语气 × 解说方式（两个正交维度，2026-11-18 重构）──────────────
+  //  语气 tone  ：怎么「说」——搞笑/严肃/霸道/愤青/悬疑/治愈/毒舌
+  //  方式 mode  ：整篇文案怎么「组织」——常规解说/短剧解说/影视深度/聊观点
+  //  两者独立可选、自由组合；传给后端的 style 拼成 "tone|mode"，后端 llm_script.py
+  //  用 _split_style() 拆开后分别生效（避免改冻结在 PYZ 里的 server/*.py，无需打包）。
+  const TONE_LABELS = {
+    none: '默认语气', funny: '搞笑', serious: '严肃', domineering: '霸道',
+    angry: '愤青', suspense: '悬疑', healing: '治愈', sarcastic: '毒舌',
+  };
+  const MODE_LABELS = {
+    none: '常规解说', short_drama: '短剧解说', movie: '影视赏析', viewpoint: '聊观点',
+  };
+  /** 当前选中的「说话语气」key（默认 none）。 */
+  const comCurrentTone = () => {
+    const t = document.querySelector('input[name="comTone"]:checked');
+    return t ? t.value : 'none';
+  };
+  /** 当前选中的「解说方式」key（默认 none=常规解说）。 */
+  const comCurrentMode = () => {
+    const m = document.querySelector('input[name="comNarrationMode"]:checked');
+    return m ? m.value : 'none';
+  };
+  /** 传给后端的 style：两个维度拼成 "tone|mode"；都默认时发 "none"（老行为不变）。 */
   const comCurrentStyle = () => {
-    const el2 = document.querySelector('input[name="comStyle"]:checked');
-    return el2 ? el2.value : 'none';
+    const t = comCurrentTone(), m = comCurrentMode();
+    if (t === 'none' && m === 'none') return 'none';
+    return t + '|' + m;
+  };
+  /** 联动音色：方式优先、语气兜底 —— 与后端 llm_script.py 的取值顺序完全一致。 */
+  const comCurrentVoice = () => {
+    const t = comCurrentTone(), m = comCurrentMode();
+    let v = 'zh-CN-XiaoxiaoNeural';
+    if (t !== 'none') v = STYLE_VOICE[t] || v;
+    if (m !== 'none') v = STYLE_VOICE[m] || v;
+    return v;
   };
 
-  /** 风格联动：自动把全局配音切到该风格的推荐音色，并更新提示文案。 */
+  /** 风格联动：按当前「语气＋方式」联动推荐音色，并把两个维度都在提示里讲清楚。 */
   const comApplyStyleVoice = () => {
-    const st = comCurrentStyle();
-    const v = STYLE_VOICE[st] || 'zh-CN-XiaoxiaoNeural';
+    const t = comCurrentTone(), m = comCurrentMode();
+    const v = comCurrentVoice();
     if (el.comScriptVoice && !el.comScriptVoice.disabled) {
       el.comScriptVoice.value = v;
     }
     const hint = document.getElementById('comStyleHint');
     if (hint) {
-      if (st === 'none') {
-        hint.textContent = '默认风格：音色由下方「全局配音」决定。';
+      const parts = [];
+      if (t !== 'none') parts.push(TONE_LABELS[t] || t);
+      if (m !== 'none') parts.push(MODE_LABELS[m] || m);
+      if (!parts.length) {
+        hint.textContent = '默认语气 ＋ 常规解说：音色由下方「全局配音」决定。';
       } else {
-        hint.textContent = `「${st}」风格已联动音色：${comVoiceLabel(v)}（可在下方「全局配音」手动改）。`;
+        hint.textContent = `「${parts.join(' ＋ ')}」已联动音色：${comVoiceLabel(v)}（可在下方「全局配音」手动改）。`;
       }
     }
-    comSyncStyleFoldHint();  // 折叠卡摘要跟着变（收起状态下也能看到当前风格）
+    comSyncStyleFoldHint();  // 折叠卡摘要跟着变（收起状态下也能看到当前选择）
   };
 
   // 配音引擎（edge-tts）健康提示：微软会周期性作废旧版客户端，表现是「配音全部 403」。
@@ -14378,26 +14441,32 @@ el.dwVidPlayer.hidden = true;
     });
   }
 
-  /** 解说风格折叠卡的摘要：实时显示「当前风格 · 强度 n」（收起时也能一眼看清当前选择）。
-   *  2026-09-21 用户要求这块跟上面几张卡一样能收起来 → 收起后列表与滑杆都不可见，
-   *  所以摘要必须自己承担「当前值」的展示；宽度不够时靠 title 看全文。
-   *  ⚠️ 用 getElementById 取滑杆，不引用下面才定义的 comStyleIntensityEl（否则初始化时 TDZ 报错）。 */
-  const comStyleFoldHintEl = document.getElementById('comStyleFoldHint');
+  /** 说话语气 / 解说方式两张独立折叠卡各自的摘要（2026-11-18 用户：「分开，分为两个，不要放一个里面」）。
+   *  · 语气卡显示「当前语气 · 强度 n」（强度是口吻强弱，归语气卡）
+   *  · 方式卡显示「当前方式」
+   *  收起后列表与滑杆都不可见，所以摘要必须自己承担「当前值」的展示；宽度不够时靠 title 看全文。
+   *  ⚠️ 函数名 comSyncStyleFoldHint 保留，所有调用点不用动；用 getElementById 取滑杆，
+   *     不引用下面才定义的 comStyleIntensityEl（否则初始化时 TDZ 报错）。 */
+  const comToneFoldHintEl = document.getElementById('comToneFoldHint');
+  const comModeFoldHintEl = document.getElementById('comModeFoldHint');
   const comSyncStyleFoldHint = () => {
-    if (!comStyleFoldHintEl) return;
-    const radio = document.querySelector('input[name="comStyle"]:checked');
-    const labEl = radio ? radio.closest('label') : null;
-    const spanEl = labEl ? labEl.querySelector('span') : null;
-    const name = ((spanEl ? spanEl.textContent : '默认') || '默认').trim();
+    const t = comCurrentTone(), m = comCurrentMode();
     const rng = document.getElementById('comStyleIntensity');
     const val = rng ? rng.value : '65';
-    const txt = name + ' · 强度 ' + val;
-    if (comStyleFoldHintEl.textContent !== txt) comStyleFoldHintEl.textContent = txt;
-    comStyleFoldHintEl.title = txt;
+    const toneTxt = (TONE_LABELS[t] || '默认语气') + ' · 强度 ' + val;
+    const modeTxt = MODE_LABELS[m] || '常规解说';
+    if (comToneFoldHintEl) {
+      if (comToneFoldHintEl.textContent !== toneTxt) comToneFoldHintEl.textContent = toneTxt;
+      comToneFoldHintEl.title = toneTxt;
+    }
+    if (comModeFoldHintEl) {
+      if (comModeFoldHintEl.textContent !== modeTxt) comModeFoldHintEl.textContent = modeTxt;
+      comModeFoldHintEl.title = modeTxt;
+    }
   };
 
-  // 解说风格切换：联动默认音色 + 更新提示文案（用户仍可在审核面板手动改音色）
-  document.querySelectorAll('input[name="comStyle"]').forEach((r) => {
+  // 说话语气 / 解说方式切换：任一组变化都重新联动音色 + 更新提示（仍可手动改音色）
+  document.querySelectorAll('input[name="comTone"], input[name="comNarrationMode"]').forEach((r) => {
     r.addEventListener('change', comApplyStyleVoice);
   });
   comApplyStyleVoice();  // 初始化提示
@@ -15136,7 +15205,7 @@ el.dwVidPlayer.hidden = true;
             const data = await comVoiceLibActivate(it);
             comRenderVoiceSample(data);
             comFillScriptVoice();
-            await comVoiceLibPlay(STYLE_VOICE[comCurrentStyle()] || 'zh-CN-XiaoxiaoNeural', COM_CLONE_PROVIDERS[0]);
+            await comVoiceLibPlay(comCurrentVoice(), COM_CLONE_PROVIDERS[0]);
             comVoiceLibHint('这是「' + it.name + '」的克隆声（已顺便切到它）', '');
           } catch (e) {
             comVoiceLibHint(String((e && e.message) || e), 'warn');
@@ -16536,7 +16605,7 @@ el.dwVidPlayer.hidden = true;
   // 解说类型自定义下拉：点开/点外面收起；点选项更新 label + 隐藏 radio + 关 panel
   if (el.comTypeBtn && el.comTypePanel) {
     let comTypeDirty = false;
-    const comTypeTitle = '解说类型';
+    const comTypeTitle = '讲解深度';
     const comTypeDefault = 'deep_hl';
     const closeTypeDropdown = () => {
       el.comTypePanel.hidden = true;
@@ -16571,6 +16640,8 @@ el.dwVidPlayer.hidden = true;
     el.comTypePanel.querySelectorAll('.com-mode-dropdown-option').forEach((btn) => {
       btn.addEventListener('click', () => {
         const val = btn.getAttribute('data-value');
+        // 只记录「用户手点」：联动改写（聊观点/短剧）不改写用户原值，切回时才能恢复
+        if (!_comTypeAutoSwitching) _comTypeUserValue = val;
         // 同步隐藏 radio
         const radio = document.querySelector(`input[name="comType"][value="${val}"]`);
         if (radio) radio.checked = true;
@@ -16651,14 +16722,22 @@ el.dwVidPlayer.hidden = true;
       // 2026-11-13：追加「自定义比例…」，选中后露出 宽:高 输入框，支持任意 W:H 手动画幅。
       options: [['auto', '自动（跟视频走）'], ['16:9', '横屏 16:9'], ['4:3', '4:3 传统屏'], ['1:1', '方形 1:1'], ['9:16', '竖屏 9:16'], ['custom', '自定义比例…']],
     },
-    comStyle: {
+    // 2026-11-18：原 comStyle 一整组拆成两个正交维度，各自独立可选、自由组合。
+    comTone: {
       kind: 'radio',
-      title: '解说风格',
+      title: '说话语气',
       hide: '.com-opt-row-styles',
       options: [
         ['none', '默认'], ['funny', '搞笑'], ['serious', '严肃'], ['domineering', '霸道'],
         ['angry', '愤青'], ['suspense', '悬疑'], ['healing', '治愈'], ['sarcastic', '毒舌'],
-        ['short_drama', '短剧解说'], ['movie', '影视深度'],
+      ],
+    },
+    comNarrationMode: {
+      kind: 'radio',
+      title: '解说方式',
+      hide: '.com-opt-row-styles',
+      options: [
+        ['none', '常规解说'], ['short_drama', '短剧解说'], ['movie', '影视赏析'], ['viewpoint', '聊观点'],
       ],
     },
   };
@@ -16694,29 +16773,33 @@ el.dwVidPlayer.hidden = true;
     },
   };
   const comSelectControls = new Map();   // key -> { setDisabled(flag, reason) }
-  // 2026-11-15：解说类型是独立下拉（不走 data-com-select 通用机制），
+  // 2026-11-15：讲解深度是独立下拉（不走 data-com-select 通用机制），
   // 选中「剧集深度解说」模板时整组灰化 —— 文案规则已由模板决定，留着可点会让人以为能改。
   // 沿用既有约定：只做灰化 + 不可操作，不改写 radio 原值，切回其他模板即自动恢复。
   const applyComTypeDisabled = () => {
     if (!el.comTypeBtn) return;
     const t = document.querySelector('input[name="comTemplate"]:checked');
     const isSeries = !!t && t.getAttribute('value') === 'series';
-    // 视觉灰化加在外层 .com-mode-dropdown 上，复用 styles.css:3297 已有的 .is-disabled 规则；
-    // 同时禁用所有原生 radio，防键盘/辅助工具改值（与通用下拉 setDisabled 的做法一致）。
-    if (el.comTypeDropdown) el.comTypeDropdown.classList.toggle('is-disabled', isSeries);
-    el.comTypeBtn.disabled = isSeries;
-    el.comTypeBtn.setAttribute('aria-disabled', isSeries ? 'true' : 'false');
+    // 2026-11-18：聊观点只挑「能撑观点的片段」，与「全片连贯、段数越多越好」是互斥指令（实测确认）。
+    const lockByViewpoint = comCurrentMode() === 'viewpoint';
+    const locked = isSeries || lockByViewpoint;
+    // 视觉灰化加在外层 .com-mode-dropdown 上，复用 styles.css 已有的 .is-disabled 规则。
+    if (el.comTypeDropdown) el.comTypeDropdown.classList.toggle('is-disabled', locked);
+    el.comTypeBtn.disabled = locked;
+    el.comTypeBtn.setAttribute('aria-disabled', locked ? 'true' : 'false');
     el.comTypeBtn.title = isSeries
       ? '当前剪辑模板为「剧集深度解说」，文案规则由模板固定，无需再选'
-      : '';
+      : (lockByViewpoint ? '聊观点只挑能撑观点的片段，讲解深度固定为「高光·简述」' : '');
     if (el.comTypePanel) {
       el.comTypePanel.parentElement
         .querySelectorAll('input[name="comType"]')
-        .forEach((n) => { n.disabled = isSeries; });
-      if (isSeries) el.comTypePanel.hidden = true;
+        .forEach((n) => { n.disabled = locked; });
+      if (locked) el.comTypePanel.hidden = true;
     }
     if (el.comTypeBtnLabel) {
-      el.comTypeBtnLabel.textContent = isSeries ? '由剪辑模板决定' : '解说类型';
+      el.comTypeBtnLabel.textContent = isSeries
+        ? '由剪辑模板决定'
+        : (lockByViewpoint ? '高光·简述（聊观点固定）' : '讲解深度');
     }
   };
   const applyComSelectEnabled = () => {
@@ -16727,6 +16810,42 @@ el.dwVidPlayer.hidden = true;
     });
     applyComTypeDisabled();
   };
+
+  // 2026-11-18：解说方式 → 讲解深度的自动联动（按实测确认的互斥组合）：
+  //   · 聊观点   → 锁「高光·简述」：只挑能撑观点的片段，不能同时要求全片连贯、段数越多越好。
+  //   · 短剧解说 → 深度降为「简述」：短剧每十几秒一个反转，与「单段 15~40 秒」互斥。
+  //   切回其他方式时恢复用户手动选过的原值，不吞掉他的选择。
+  let _comTypeUserValue = 'deep_hl';   // 用户手动选过的档位（联动改写不更新它）
+  let _comTypeAutoSwitching = false;   // 区分「程序联动改写」与「用户手点」
+
+  const comPickTypeSilently = (val) => {
+    const panel = el.comTypePanel;
+    if (!panel) return;
+    const btn = panel.querySelector(`.com-mode-dropdown-option[data-value="${val}"]`);
+    if (!btn) return;
+    _comTypeAutoSwitching = true;
+    try { btn.click(); } finally { _comTypeAutoSwitching = false; }
+  };
+
+  const comApplyModeTypeGuards = () => {
+    const mode = comCurrentMode();
+    const checked = document.querySelector('input[name="comType"]:checked');
+    const cur = checked ? checked.getAttribute('value') : 'deep_hl';
+    if (mode === 'viewpoint') {
+      if (cur !== 'normal_hl') comPickTypeSilently('normal_hl');
+    } else if (mode === 'short_drama') {
+      if (cur === 'deep_hl') comPickTypeSilently('normal_hl');
+      else if (cur === 'full_deep') comPickTypeSilently('full_normal');
+    } else if (_comTypeUserValue && cur !== _comTypeUserValue) {
+      comPickTypeSilently(_comTypeUserValue);
+    }
+    applyComTypeDisabled();
+  };
+
+  document.querySelectorAll('input[name="comNarrationMode"]').forEach((r) => {
+    r.addEventListener('change', comApplyModeTypeGuards);
+  });
+  comApplyModeTypeGuards();  // 初始化：默认「常规解说」不会改动任何值
 
   /** 读取原生控件当前值：radio 取 checked 的 value，checkbox 返回 on/off。 */
   const comSelectRead = (def, key) => {
