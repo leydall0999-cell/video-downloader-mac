@@ -12722,7 +12722,7 @@ el.dwVidPlayer.hidden = true;
 
       // 逐段渲染可编辑行
       const segs = data.segments || [];
-      // 2026-11-19：Stage1 抽到的角色清单回填「视角角色」下拉（AI 列角色给你点）。
+      // 2026-11-19：Stage1 抽到的角色清单回填「解说角色」下拉（AI 列角色给你点）。
       comFillViewRoles(data.roles);
       // 🔴 2026-11-09（用户：「选了 10:00–15:00，文案还是从头开始说」）：
       //   裁剪过的片子，segments.start/end 是**片段内**相对秒（0 起），而用户是按原片时间圈范围。
@@ -13512,15 +13512,17 @@ el.dwVidPlayer.hidden = true;
     const m = document.querySelector('input[name="comNarrationMode"]:checked');
     return m ? m.value : 'none';
   };
-  /** 当前「视角角色」：下拉优先，选「手填」时读输入框；空=第三人称（不启用）。 */
+  /** 当前「解说角色」：下拉选具体角色直接用；选「手填」或框里有字则读输入框；空=第三人称（不启用）。 */
   const comCurrentViewRole = () => {
     const sel = document.getElementById('comViewRole');
     const custom = document.getElementById('comViewRoleCustom');
+    const typed = (custom && custom.value || '').trim();
+    if (typed) return String(typed).slice(0, 24);   // 框里有字优先（无需先在下拉选手填）
     let v = (sel && sel.value) || '';
-    if (v === '__custom__') v = (custom && custom.value || '').trim();
-    return v && v !== 'none' ? String(v).slice(0, 24) : '';
+    if (v === '__custom__' || v === 'none') return '';
+    return v ? String(v).slice(0, 24) : '';
   };
-  /** 用 Stage1 回传的角色清单填下拉；保留用户当前选择。 */
+  /** 用 Stage1 回传的角色清单填下拉；始终保留「手填」选项，保留用户当前选择。 */
   const comFillViewRoles = (roles) => {
     const sel = document.getElementById('comViewRole');
     if (!sel) return;
@@ -13535,7 +13537,7 @@ el.dwVidPlayer.hidden = true;
     const hint = document.getElementById('comRoleFoldHint');
     if (hint) {
       const v = comCurrentViewRole();
-      hint.textContent = v ? ('视角：' + v) : '第三人称解说';
+      hint.textContent = v ? ('解说角色：' + v) : '第三人称解说';
     }
   };
   /** 传给后端的 style：三维拼成 "tone|mode|角色"；都默认时发 "none"（老行为不变）。 */
@@ -13547,7 +13549,7 @@ el.dwVidPlayer.hidden = true;
     const head = bothDefault ? 'none|none' : t + '|' + m;
     return role ? head + '|' + role : (bothDefault ? 'none' : head);
   };
-  // 视角角色控件：切换/手填时实时更新折叠卡摘要（选中后要重新生成解说才生效）。
+  // 解说角色控件：切换/手填时实时更新折叠卡摘要（选中后要重新生成解说才生效）。
   (() => {
     const sel = document.getElementById('comViewRole');
     const custom = document.getElementById('comViewRoleCustom');
@@ -13555,7 +13557,7 @@ el.dwVidPlayer.hidden = true;
       const hint = document.getElementById('comRoleFoldHint');
       if (!hint) return;
       const v = comCurrentViewRole();
-      hint.textContent = v ? ('视角：' + v) : '第三人称解说';
+      hint.textContent = v ? ('解说角色：' + v) : '第三人称解说';
     };
     if (sel) sel.addEventListener('change', sync);
     if (custom) custom.addEventListener('input', sync);

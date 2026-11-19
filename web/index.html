@@ -3521,25 +3521,25 @@
         </div>
       </details>
 
-      <!-- ============ 视角角色（2026-11-19）============
+      <!-- ============ 解说角色（2026-11-19）============
            站在某个角色立场上解说：AI 列角色给你点（方案1）为主，没抽到就手填（方案2兜底）。
            角色清单来自 Stage1 剧情分析的「人物」，由 script.json 的 roles 字段回填；
            选中后拼进 style 第三段（tone|mode|角色名），管线在本地 prompt 里加视角约束。 -->
       <details class="com-fold-card com-style-fold" id="comRoleFold" data-page-node-id="comRoleFold">
         <summary class="com-fold-head" data-page-node-id="comRoleFoldHead">
-          <span class="com-fold-title" data-page-node-id="comRoleFoldTitle">🎭 视角角色</span>
+          <span class="com-fold-title" data-page-node-id="comRoleFoldTitle">🎭 解说角色</span>
           <span class="com-fold-hint" id="comRoleFoldHint" data-page-node-id="comRoleFoldHint">第三人称解说</span>
         </summary>
         <div class="com-opts com-style-section" data-page-node-id="comRoleFoldBody">
           <div class="com-opt-block com-opt-block-full">
             <div class="com-opt-row" style="flex-direction:column;align-items:stretch;gap:6px;">
-              <select id="comViewRole" aria-label="视角角色" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:13px;">
+              <select id="comViewRole" aria-label="解说角色" style="width:100%;box-sizing:border-box;padding:7px 10px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:13px;">
                 <option value="">不启用（第三人称）</option>
+                <option value="__custom__">✎ 手填角色…</option>
               </select>
-              <div style="font-size:12px;color:var(--text-mute);margin-top:2px;">列表里没有？手动填写：</div>
               <input id="comViewRoleCustom" type="text" maxlength="24" placeholder="输入角色名，如：少帅" style="width:100%;box-sizing:border-box;padding:9px 11px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--surface);color:var(--text);font-size:13px;" />
             </div>
-            <p class="com-style-hint" style="margin-top:6px;">选了角色后，解说会用第一人称「我是…」来讲，只写他当时知道的事（天然防剧透）。</p>
+            <p class="com-style-hint" style="margin-top:6px;">下拉里的角色来自剧情分析——先「生成脚本」一次，这里才会列出本剧角色；没有就选手填或直接在框里输入。选了角色后解说用第一人称「我是…」讲，只写他当时知道的事（天然防剧透）。</p>
           </div>
         </div>
       </details>
