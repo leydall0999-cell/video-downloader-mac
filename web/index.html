@@ -2787,6 +2787,13 @@
             <span class="com-music-count" id="comMusicCount"></span>
             <button type="button" class="btn btn-sm btn-secondary" id="comMusicRefresh">刷新</button>
           </div>
+          <!-- 从本地选择（用户 2026-11-19「加个可以从本地选择」）：一键弹系统文件框选本机音频，
+               复用 comMusic.kind='user' + file 状态流（桌面桥 chooseFiles 拿绝对路径，后端已支持 bgm_file）。 -->
+          <div class="com-music-localrow">
+            <button type="button" class="btn btn-sm btn-primary" id="comMusicLocalPick"
+                    title="选本机音乐文件作背景音乐（mp3 / wav / m4a / flac）"
+                    style="width:100%;">📁 从本地选择音乐文件</button>
+          </div>
           <div class="com-music-list" id="comMusicList"></div>
           <div class="com-music-hint" id="comMusicHint"></div>
         </div>

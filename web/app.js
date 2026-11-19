@@ -18309,6 +18309,37 @@ el.dwVidPlayer.hidden = true;
     });
     const musicRefresh = $('comMusicRefresh');
     if (musicRefresh) musicRefresh.addEventListener('click', () => comMusicCardLoad(true));
+    // 从本地选择音乐文件（卡片内一键入口）：复用桌面桥 chooseFiles 拿绝对路径，
+    // 写回 comMusic.kind='user' + file，与曲库「下载并使用」走同一状态流。
+    const musicLocalPick = $('comMusicLocalPick');
+    if (musicLocalPick) musicLocalPick.addEventListener('click', async () => {
+      const _old = musicLocalPick.textContent;
+      try {
+        const fn = window.VDL && window.VDL.desktop && window.VDL.desktop.chooseFiles;
+        if (typeof fn !== 'function') {
+          comMusicCardTip('当前环境不支持本地选择（请在桌面客户端里使用）', 'err');
+          return;
+        }
+        musicLocalPick.disabled = true;
+        musicLocalPick.textContent = '选择中…';
+        const arr = await fn('media');
+        const p = (Array.isArray(arr) && arr.length) ? arr[0] : '';
+        if (!p) { comMusicCardTip('没选到文件（已取消？）'); return; }
+        comMusicStopAudition();
+        comMusic.kind = 'user';
+        comMusic.file = p;
+        comMusic.cloudName = '';
+        comMusicSync();
+        comMusicCardRender();
+        comMusicCardTip('已选「' + comMusicFileBase() + '」：渲染成片时混入，断网也能用', 'ok');
+        comMusicSyncCurrentOutput();
+      } catch (e) {
+        comMusicCardTip('选择失败：' + ((e && e.message) || e), 'err');
+      } finally {
+        musicLocalPick.disabled = false;
+        musicLocalPick.textContent = _old;
+      }
+    });
     if (m.audition) m.audition.addEventListener('click', comMusicAudition);
     if (m.apply) m.apply.addEventListener('click', comMusicApply);
     comMusicSync();

@@ -7854,6 +7854,8 @@ html.theme-dark .uc-bulk { background: var(--bg-card, #23252c); border-color: va
 
 /* 左栏「背景音乐」同级卡（2026-11-09 用户「放在左边」）：曲库列表 + 成片同款时间排序 + 点整行即选中 */
 .com-music-cell { padding: .05rem .6rem .65rem; }
+.com-music-localrow { margin-bottom: .4rem; }
+.com-music-localrow .btn { white-space: normal; line-height: 1.2; }
 .com-music-sortrow { display: flex; align-items: center; gap: .4rem; margin-bottom: .4rem; }
 /* 排序按钮与「成片」历史列表完全同款：同 SVG 图标、同紧凑尺寸、同 is-asc 品牌色高亮 */
 .com-music-sortrow .com-sort-btn { flex: none; min-width: 0; padding: .3rem .34rem; font-size: .74rem; gap: .28rem; }
