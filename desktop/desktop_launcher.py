@@ -1603,6 +1603,73 @@ class VdlApi:
         _log(f"saved -> {saved}")
         return saved
 
+    def save_doc_file(self, job_id: str, kind: str, suggested_name: str = "",
+                      device: str = "", token: str = "") -> str:
+        """文档转换结果（PPT / Word）另存到本地（原生保存面板，绕开 WKWebView <a download> 限制）。
+
+        与 save_task_file 同一套机制：osascript 原生面板选位置 → Python 从本机后端
+        `/api/doc-convert/{job}/file?kind=...` 拉文件写盘。文档转换是 2026-11-19 新增功能，
+        前端两个按钮最初用了裸 `<a href download>`，而 pywebview 的 WKWebView 默认
+        ALLOW_DOWNLOADS=False → 点击被静默吞掉（不报错、不弹框、不落盘），用户以为没反应。
+        返回保存的绝对路径；取消 "CANCELLED"；失败 "ERROR: ..."。
+        """
+        import re as _re
+        import urllib.parse as _urlparse
+        import datetime as _dt
+        from pathlib import Path
+
+        def _log(msg: str) -> None:
+            try:
+                with open("/tmp/vdl_doc_save.log", "a") as f:
+                    f.write(f"[{_dt.datetime.now().isoformat()}] {msg}\n")
+            except Exception:
+                pass
+
+        jid = str(job_id or "").strip()
+        # 任务 id 只含十六进制 + 可选 doc_ 前缀：白名单校验顺带堵住拼进 URL 路径的口子
+        if not _re.fullmatch(r"[A-Za-z0-9_-]{4,64}", jid):
+            return "ERROR: 无效的任务编号"
+        k = str(kind or "").strip().lower()
+        if k not in ("pptx", "docx"):
+            return "ERROR: 无效的文件类型"
+        suggested = _re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", str(suggested_name or "")).strip(" .")
+        if not suggested:
+            suggested = "document." + k
+        if len(suggested) > 120:
+            stem, dot, suf = suggested.rpartition(".")
+            suggested = (stem[:110] + dot + suf) if dot else suggested[:120]
+
+        downloads = Path.home() / "Downloads"
+        try:
+            downloads.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            downloads = Path.home()
+
+        try:
+            chosen = _choose_save_path("保存到", suggested, "/tmp/vdl_doc_save.log")
+        except Exception as exc:  # noqa: BLE001 - 面板异常不该让「保存」变成崩溃
+            _log(f"choose-save-path exception: {exc!r}")
+            chosen = ""
+        if chosen == "CANCELLED":
+            return "CANCELLED"
+        dest = Path(chosen) if chosen else (downloads / suggested)
+
+        url = f"http://{HOST}:{PORT}/api/doc-convert/{_urlparse.quote(jid)}/file?kind={k}"
+        if device:
+            url += "&device=" + _urlparse.quote(str(device))
+        headers = {}
+        if device:
+            headers["X-Device-Id"] = str(device)
+        if token:
+            headers["Authorization"] = "Bearer " + str(token)
+        try:
+            saved = _download_url_to_path(url, str(dest), headers=headers)
+        except Exception as exc:  # noqa: BLE001 - 把原因交回前端展示
+            _log(f"write error: {exc!r}")
+            return f"ERROR: {exc}"
+        _log(f"saved -> {saved}")
+        return saved
+
     def reveal_path(self, path: str) -> str:
         """在系统文件管理器里定位并选中该文件（访达 / 资源管理器 / xdg）。
 

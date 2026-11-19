@@ -19585,6 +19585,46 @@ el.dwVidPlayer.hidden = true;
   // 走 /api/doc-convert 上传 → 后台线程用 LibreOffice（或内置回退）转换 → 轮询 → 双下载。
   const docState = { file: null, jobId: '', timer: 0, busy: false };
 
+  // 文档转换双下载：桌面端 pywebview/WKWebView 默认不开 ALLOW_DOWNLOADS，
+  // 裸 <a download> 点击会被静默吞掉（不报错/不弹框/不落盘）——与去水印/成片同款坑。
+  // 桌面优先走原生桥 save_doc_file 弹系统保存面板；web/桥不可用时回退 <a download>。
+  const docDownload = async (btn) => {
+    const jobId = btn.dataset.jobId || '';
+    const kind = btn.dataset.kind || 'pptx';
+    const filename = btn.dataset.filename || ('document.' + kind);
+    const api = window.pywebview && window.pywebview.api;
+    if (api && typeof api.save_doc_file === 'function' && jobId) {
+      const orig = btn.textContent;
+      btn.textContent = '选择保存位置…';
+      btn.disabled = true;
+      try {
+        const res = await api.save_doc_file(jobId, kind, filename, deviceId());
+        if (res === 'CANCELLED') {
+          btn.textContent = orig;
+        } else if (typeof res === 'string' && res.indexOf('ERROR:') === 0) {
+          alert('保存失败：' + res.replace(/^ERROR:\s*/, ''));
+          btn.textContent = orig;
+        } else {
+          btn.textContent = '已保存：' + res;
+          setTimeout(() => { btn.textContent = orig; }, 5000);
+        }
+      } catch (err) {
+        alert('保存失败：' + (err && err.message ? err.message : err));
+        btn.textContent = orig;
+      } finally {
+        btn.disabled = false;
+      }
+      return true;
+    }
+    return false; // 交回浏览器默认 <a download> 行为
+  };
+  if (el.docPptxBtn) el.docPptxBtn.addEventListener('click', (e) => {
+    if (docDownload(el.docPptxBtn)) e.preventDefault();
+  });
+  if (el.docDocxBtn) el.docDocxBtn.addEventListener('click', (e) => {
+    if (docDownload(el.docDocxBtn)) e.preventDefault();
+  });
+
   const docSetStatus = (text, pct) => {
     if (!el.docStatus) return;
     el.docStatus.hidden = false;
@@ -19608,14 +19648,17 @@ el.dwVidPlayer.hidden = true;
     const dev = encodeURIComponent(deviceId());
     const name = String(j.src_name || 'document').replace(/\.pdf$/i, '');
     const q = base + '/api/doc-convert/' + encodeURIComponent(docState.jobId) + '/file?device=' + dev;
-    if (el.docPptxBtn) {
-      el.docPptxBtn.href = q + '&kind=pptx';
-      el.docPptxBtn.setAttribute('download', name + '.pptx');
-    }
-    if (el.docDocxBtn) {
-      el.docDocxBtn.href = q + '&kind=docx';
-      el.docDocxBtn.setAttribute('download', name + '.docx');
-    }
+    const docSetBtn = (btn, kind) => {
+      if (!btn) return;
+      btn.href = q + '&kind=' + kind;
+      btn.setAttribute('download', name + '.' + kind);
+      // 供原生桥读取：桌面端 pywebview/WKWebView 会吞掉 <a download> 点击
+      btn.dataset.jobId = docState.jobId;
+      btn.dataset.kind = kind;
+      btn.dataset.filename = name + '.' + kind;
+    };
+    docSetBtn(el.docPptxBtn, 'pptx');
+    docSetBtn(el.docDocxBtn, 'docx');
     if (el.docResultTip) {
       const eng = j.engine === 'builtin'
         ? '内置引擎（装了 LibreOffice 版面会更接近原稿）'
