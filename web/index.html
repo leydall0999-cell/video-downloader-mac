@@ -3521,6 +3521,29 @@
         </div>
       </details>
 
+      <!-- ============ 视角角色（2026-11-19）============
+           站在某个角色立场上解说：AI 列角色给你点（方案1）为主，没抽到就手填（方案2兜底）。
+           角色清单来自 Stage1 剧情分析的「人物」，由 script.json 的 roles 字段回填；
+           选中后拼进 style 第三段（tone|mode|角色名），管线在本地 prompt 里加视角约束。 -->
+      <details class="com-fold-card com-style-fold" id="comRoleFold" data-page-node-id="comRoleFold">
+        <summary class="com-fold-head" data-page-node-id="comRoleFoldHead">
+          <span class="com-fold-title" data-page-node-id="comRoleFoldTitle">🎭 视角角色</span>
+          <span class="com-fold-hint" id="comRoleFoldHint" data-page-node-id="comRoleFoldHint">第三人称解说</span>
+        </summary>
+        <div class="com-opts com-style-section" data-page-node-id="comRoleFoldBody">
+          <div class="com-opt-block com-opt-block-full">
+            <div class="com-opt-title">站在谁的角度讲故事（先生成解说脚本，这里才会列出角色）</div>
+            <div class="com-opt-row" style="align-items:center;gap:8px;flex-wrap:wrap;">
+              <select id="comViewRole" aria-label="视角角色" style="max-width:190px;padding:5px 8px;border-radius:6px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);font-size:13px;">
+                <option value="">不启用（第三人称）</option>
+              </select>
+              <input id="comViewRoleCustom" type="text" maxlength="24" placeholder="没列出？手填角色名" style="flex:1;min-width:130px;padding:5px 8px;border-radius:6px;border:0.5px solid var(--color-border-secondary);background:var(--color-background-secondary);color:var(--color-text-primary);font-size:13px;" />
+            </div>
+            <p class="com-style-hint" style="margin-top:6px;">选了角色后，解说会用第一人称「我是…」来讲，只写他当时知道的事（天然防剧透）。</p>
+          </div>
+        </div>
+      </details>
+
       <!-- 缩短成片时长（2026-11-15 二次改）：用户「只做缩短成片时间，不做拉长成片时长」+
            「根据选择好的起点终点来决定整片的时长」。做成与上方各卡同款的折叠卡放在右栏，
            不再占中栏（中栏恢复只有「解说长度」的紧凑布局）。

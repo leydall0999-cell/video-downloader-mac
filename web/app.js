@@ -12722,6 +12722,8 @@ el.dwVidPlayer.hidden = true;
 
       // 逐段渲染可编辑行
       const segs = data.segments || [];
+      // 2026-11-19：Stage1 抽到的角色清单回填「视角角色」下拉（AI 列角色给你点）。
+      comFillViewRoles(data.roles);
       // 🔴 2026-11-09（用户：「选了 10:00–15:00，文案还是从头开始说」）：
       //   裁剪过的片子，segments.start/end 是**片段内**相对秒（0 起），而用户是按原片时间圈范围。
       //   显示时把原片起点加回来，并在列表上方标出这段在原片的位置，避免「2:11 就是片头」的误判。
@@ -13510,12 +13512,54 @@ el.dwVidPlayer.hidden = true;
     const m = document.querySelector('input[name="comNarrationMode"]:checked');
     return m ? m.value : 'none';
   };
-  /** 传给后端的 style：两个维度拼成 "tone|mode"；都默认时发 "none"（老行为不变）。 */
-  const comCurrentStyle = () => {
-    const t = comCurrentTone(), m = comCurrentMode();
-    if (t === 'none' && m === 'none') return 'none';
-    return t + '|' + m;
+  /** 当前「视角角色」：下拉优先，选「手填」时读输入框；空=第三人称（不启用）。 */
+  const comCurrentViewRole = () => {
+    const sel = document.getElementById('comViewRole');
+    const custom = document.getElementById('comViewRoleCustom');
+    let v = (sel && sel.value) || '';
+    if (v === '__custom__') v = (custom && custom.value || '').trim();
+    return v && v !== 'none' ? String(v).slice(0, 24) : '';
   };
+  /** 用 Stage1 回传的角色清单填下拉；保留用户当前选择。 */
+  const comFillViewRoles = (roles) => {
+    const sel = document.getElementById('comViewRole');
+    if (!sel) return;
+    const prev = sel.value || '';
+    const list = Array.isArray(roles) ? roles.filter((x) => typeof x === 'string' && x.trim()).slice(0, 8) : [];
+    sel.replaceChildren();
+    const mk = (val, text) => { const o = document.createElement('option'); o.value = val; o.textContent = text; return o; };
+    sel.appendChild(mk('', '不启用（第三人称）'));
+    list.forEach((nm) => sel.appendChild(mk(nm, '我是「' + nm + '」')));
+    sel.appendChild(mk('__custom__', '✎ 手填角色…'));
+    sel.value = (prev === '' || prev === '__custom__' || list.indexOf(prev) >= 0) ? prev : '';
+    const hint = document.getElementById('comRoleFoldHint');
+    if (hint) {
+      const v = comCurrentViewRole();
+      hint.textContent = v ? ('视角：' + v) : '第三人称解说';
+    }
+  };
+  /** 传给后端的 style：三维拼成 "tone|mode|角色"；都默认时发 "none"（老行为不变）。 */
+  const comCurrentStyle = () => {
+    const t = comCurrentTone(), m = comCurrentMode(), role = comCurrentViewRole();
+    if (t === 'none' && m === 'none' && !role) return 'none';
+    const bothDefault = (t === 'none' && m === 'none');
+    // 有角色时必须凑够三段（none|none|角色），否则角色名会落到第二段被 _split_style 忽略。
+    const head = bothDefault ? 'none|none' : t + '|' + m;
+    return role ? head + '|' + role : (bothDefault ? 'none' : head);
+  };
+  // 视角角色控件：切换/手填时实时更新折叠卡摘要（选中后要重新生成解说才生效）。
+  (() => {
+    const sel = document.getElementById('comViewRole');
+    const custom = document.getElementById('comViewRoleCustom');
+    const sync = () => {
+      const hint = document.getElementById('comRoleFoldHint');
+      if (!hint) return;
+      const v = comCurrentViewRole();
+      hint.textContent = v ? ('视角：' + v) : '第三人称解说';
+    };
+    if (sel) sel.addEventListener('change', sync);
+    if (custom) custom.addEventListener('input', sync);
+  })();
   /** 联动音色：方式优先、语气兜底 —— 与后端 llm_script.py 的取值顺序完全一致。 */
   const comCurrentVoice = () => {
     const t = comCurrentTone(), m = comCurrentMode();
