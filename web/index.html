@@ -128,6 +128,7 @@
       <button type="button" class="sidebar-item" data-view="uploadconvert" id="sTabUploadConvert" title="视频格式转换" data-page-node-id="f8VV3Jy3sh7SxLD4Q8uGVm"><span class="sidebar-item-icon" aria-hidden="true" data-page-node-id="cR0Q1JiCcTPtGBVQMByjDF">🔁</span><span class="sidebar-item-label" data-page-node-id="SPsryCGMokmI10pP0eWHmu">视频格式转换</span></button>
       <button type="button" class="sidebar-item" data-view="musicconvert" id="sTabMusicConvert" title="音乐格式转换" data-page-node-id="vFTzyIjTwfzgFRRw4cAaAD"><span class="sidebar-item-icon" aria-hidden="true" data-page-node-id="8va6ITnNi6PWDgZEtX41SX">🎵</span><span class="sidebar-item-label" data-page-node-id="VQS72HNuXCZXnw6h43KevV">音乐转换</span></button>
       <button type="button" class="sidebar-item" data-view="imageconvert" id="sTabImageConvert" title="图片格式转换" data-page-node-id="SVqeQRkS11u4NX8GQMlYHD"><span class="sidebar-item-icon" aria-hidden="true" data-page-node-id="euNbeB0PQddOF87SP2a4QP">🖼️</span><span class="sidebar-item-label" data-page-node-id="QQkb0rYm7HdjzjIuCm1TPB">图片转换</span></button>
+      <button type="button" class="sidebar-item" data-view="docconvert" id="sTabDocConvert" title="文档转换：PDF 转 PowerPoint / Word，文字可编辑"><span class="sidebar-item-icon" aria-hidden="true">📄</span><span class="sidebar-item-label">文档转换</span></button>
       <button type="button" class="sidebar-item" data-view="compress" id="sTabCompress" title="图片 / 视频压缩：视觉无损档肉眼无差，极致档体积优先" data-page-node-id="lryOuVAUkXqAGJ8XGe592o"><span class="sidebar-item-icon" aria-hidden="true" data-page-node-id="zqxEtajJp6CSZgPiIt3uZB">🗜️</span><span class="sidebar-item-label" data-page-node-id="JJZp0Tgsl4bGNkRFglJHwy">高效压缩</span></button>
       <button type="button" class="sidebar-item" data-view="sr" id="sTabSr" title="图片高清修复：快速档秒级放大，AI 档重建真实细节" data-page-node-id="JThpU9xiJ3QK6XcLLen0CF"><span class="sidebar-item-icon" aria-hidden="true" data-page-node-id="zS8vYjHQFUCk8Sn6Zvp1PE">✨</span><span class="sidebar-item-label" data-page-node-id="DUfCc9BmTCAFM8f894bCse">高清修复</span></button>
       <!-- 2026-09-20 新增：生成二维码（本机文件 → 短链 + 二维码；微信/QQ/浏览器扫码直接看） -->
@@ -206,6 +207,7 @@
         <button type="button" class="tab" data-view="uploadconvert" id="tabUploadConvert" data-page-node-id="5Fiq5h3yDCmncHXaHcTA9A">🎬 视频格式转换</button>
         <button type="button" class="tab" data-view="musicconvert" id="tabMusicConvert" data-page-node-id="CEHRMJ0og6RyGZ9j9j9yPs">🎵 音乐转换</button>
         <button type="button" class="tab" data-view="imageconvert" id="tabImageConvert" data-page-node-id="a6hc6KGi2hefexH29ZqGIr">🖼️ 图片转换</button>
+        <button type="button" class="tab" data-view="docconvert" id="tabDocConvert">📄 文档转换</button>
         <button type="button" class="tab" data-view="compress" id="tabCompress" data-page-node-id="7p82sqSwmjTR9tgIX8pp9M">🗜️ 高效压缩</button>
         <button type="button" class="tab" data-view="sr" id="tabSr" data-page-node-id="PCRUF2B6zkGtQQ9XdyckAe">✨ 高清修复</button>
         <button type="button" class="tab" data-view="share" id="tabShare" data-page-node-id="sHareTabTop2026en01">📲 生成二维码</button>
@@ -331,6 +333,13 @@
             <span class="v5-cardtxt">
               <span class="v5-card-title">图片转换</span>
               <span class="v5-card-desc">JPG / PNG / WebP / HEIC</span>
+            </span>
+          </button>
+          <button type="button" class="v5-card" data-view="docconvert">
+            <span class="v5-tile" aria-hidden="true">文</span>
+            <span class="v5-cardtxt">
+              <span class="v5-card-title">文档转换</span>
+              <span class="v5-card-desc">PDF → PPT / Word</span>
             </span>
           </button>
           <button type="button" class="v5-card" data-view="compress">
@@ -905,6 +914,45 @@
     </div>
 
     <span class="convert-status" id="musStatus" aria-live="polite" data-page-node-id="Z9JzLumBUh2v7z2n4BBY0x"></span>
+  </section>
+
+  <!-- 文档转换视图：PDF → PPT / Word（视觉保真优先 LibreOffice，没装自动回退内置重建） -->
+  <section id="docConvertView" class="panel" hidden aria-labelledby="docTitle">
+    <h2 id="docTitle" class="guide-title"><span class="guide-title-text">📄 文档转换</span><button type="button" class="howto-btn" title="查看操作引导（可随时重新查看）" aria-label="查看操作引导">?</button></h2>
+    <p class="uc-tip" style="margin-top:4px;color:var(--text-mute,#6b7280);font-size:12.5px;">
+      把 PDF 转成 PowerPoint 和 Word。文字可编辑、图片与版式尽量还原；转换在本机完成，文件不上传云端。
+    </p>
+
+    <details class="howto" data-howto="docconvert">
+      <summary class="howto-head"><span class="howto-ic" aria-hidden="true">💡</span><span class="howto-title">怎么用 · 文档转换</span><span class="howto-caret" aria-hidden="true">▾</span></summary>
+      <div class="howto-body">
+        <ol class="howto-steps">
+          <li>点「选择 PDF」，挑一个要转换的 PDF 文件。</li>
+          <li>点「开始转换」，等页面显示「转换完成」（大文件约需一分钟）。</li>
+          <li>点「下载 PPT」和「下载 Word」，两个文件都会存到你选的位置。</li>
+        </ol>
+        <p class="howto-note">文字可编辑、版面尽量还原；动效和母版 PDF 里没有，需要你在 PPT 里自行添加。转换全程在本机完成，不上传云端。</p>
+        <div class="howto-foot"><button type="button" class="howto-close">✕ 关闭引导</button><span class="howto-foot-hint">需要时点页面右上角的问号按钮重新打开</span></div>
+      </div>
+    </details>
+    <div class="uc-toolbar">
+      <button type="button" class="btn btn-primary" id="docPickBtn">选择 PDF</button>
+      <input type="file" id="docFileInput" accept=".pdf,application/pdf" hidden />
+      <button type="button" class="btn btn-primary" id="docStartBtn" hidden>开始转换</button>
+      <span class="uc-count" id="docCount">尚未选择文件</span>
+    </div>
+    <div id="docEngineRow" style="margin-top:10px;font-size:12.5px;color:var(--text-mute,#6b7280);line-height:1.6;"></div>
+    <div id="docStatus" hidden style="margin-top:16px;">
+      <div id="docStatusText" style="font-size:13px;color:var(--text-dim,#4b5563);margin-bottom:7px;"></div>
+      <div style="height:6px;background:rgba(148,163,184,.25);border-radius:999px;overflow:hidden;">
+        <span id="docBarFill" style="display:block;height:100%;width:0;background:#3b82f6;transition:width .4s ease;"></span>
+      </div>
+    </div>
+    <div id="docResult" hidden style="margin-top:18px;">
+      <p id="docResultTip" style="font-size:13px;color:var(--text-dim,#4b5563);margin:0 0 10px;"></p>
+      <a class="btn btn-primary" id="docPptxBtn" href="#" download>下载 PPT</a>
+      <a class="btn btn-ghost" id="docDocxBtn" href="#" download>下载 Word</a>
+    </div>
   </section>
 
   <!-- 图片格式转换视图（独立 tab；LGPL ffmpeg 单帧转码，PNG/JPG/WebP/BMP/TIFF/GIF） -->

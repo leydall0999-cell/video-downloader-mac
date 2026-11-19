@@ -57,6 +57,12 @@ libtorrent==2.0.11; sys_platform == "linux"
 opencv-python-headless>=4.8.0
 pymupdf>=1.23.0
 
+# PDF 转 PPT / Word（文档转换页签 server/pdf_office.py）：
+# pptx 用于「没装 LibreOffice」时的回退重建；docx 用于生成 Word（LibreOffice 的 Draw→Word 导出会报 Write 错误）。
+# 两者都是纯 Python 包，体积小。
+python-pptx>=0.6.23
+python-docx>=1.1.0
+
 # 图片 AI 无痕去水印（LaMa ONNX，~107MB 权重首次惰性下载到 ~/.vdl_models）：onnxruntime 免 torch，CPU 即可跑。
 # 缺失时图片去水印自动回退 OpenCV（import 守护，不影响其余功能）。
 onnxruntime>=1.17.0

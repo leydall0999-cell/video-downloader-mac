@@ -789,6 +789,23 @@
     imgStartAllBtn: $('imgStartAllBtn'),
     imgStatus: $('imgStatus'),
 
+    // 文档转换（PDF → PPT / Word；2026-11-19 新增）
+    tabDocConvert: $('tabDocConvert'),
+    sTabDocConvert: $('sTabDocConvert'),
+    docConvertView: $('docConvertView'),
+    docPickBtn: $('docPickBtn'),
+    docFileInput: $('docFileInput'),
+    docStartBtn: $('docStartBtn'),
+    docCount: $('docCount'),
+    docStatus: $('docStatus'),
+    docStatusText: $('docStatusText'),
+    docBarFill: $('docBarFill'),
+    docResult: $('docResult'),
+    docResultTip: $('docResultTip'),
+    docPptxBtn: $('docPptxBtn'),
+    docDocxBtn: $('docDocxBtn'),
+    docEngineRow: $('docEngineRow'),
+
     // 高效压缩（cp* 前缀，独立 tab；2026-09-11 新增）
     tabCompress: $('tabCompress'),
     compressView: $('compressView'),
@@ -18981,6 +18998,7 @@ el.dwVidPlayer.hidden = true;
     const isDw = ['dw', 'dwpdf', 'dwvideo', 'matting'].includes(view);   // dw 系侧栏入口：图片/PDF/视频去水印 + 一键抠图，共用 dwView，进入时自动切对应子面板
     const isMusic = view === 'musicconvert';
     const isImage = view === 'imageconvert';
+    const isDoc = view === 'docconvert';   // 文档转换（PDF → PPT/Word，2026-11-19）
     const isCp = view === 'compress';   // 高效压缩（2026-09-11 新增）
     const isSr = view === 'sr';         // 高清修复（2026-09-12 新增）
     const isShare = view === 'share';   // 生成二维码（2026-09-20 新增）
@@ -18998,7 +19016,7 @@ el.dwVidPlayer.hidden = true;
     const isProfileAbout = view === 'profile_about';
     const isProfileSupport = view === 'profile_support';   // 客服消息工作台（仅超管）
     const isProfileGroup = isProfile || isProfilePurchases || isProfileCredits || isProfileSecurity || isProfileAbout || isProfileSupport;
-    el.downloadView.hidden = isLib || isSub || isTor || isCom || isUp || isDw || isMusic || isImage || isCp || isSr || isShare || isPage || isSt || isAppIntro || isBridge || isProfileGroup || isHome || isIdPhoto || isCd;
+    el.downloadView.hidden = isLib || isSub || isTor || isCom || isUp || isDw || isMusic || isImage || isDoc || isCp || isSr || isShare || isPage || isSt || isAppIntro || isBridge || isProfileGroup || isHome || isIdPhoto || isCd;
     if (el.homeView) el.homeView.hidden = !isHome;
     el.libraryView.hidden = !isLib;
     el.subscribeView.hidden = !isSub;
@@ -19007,6 +19025,7 @@ el.dwVidPlayer.hidden = true;
     el.uploadConvertView.hidden = !isUp;
     el.musicConvertView.hidden = !isMusic;
     el.imageConvertView.hidden = !isImage;
+    if (el.docConvertView) el.docConvertView.hidden = !isDoc;
     if (el.compressView) el.compressView.hidden = !isCp;
     if (el.srView) el.srView.hidden = !isSr;
     if (el.shareView) el.shareView.hidden = !isShare;
@@ -19028,7 +19047,7 @@ el.dwVidPlayer.hidden = true;
     if (el.profileSecurityPanel) el.profileSecurityPanel.hidden = !isProfileSecurity;
     if (el.profileAboutPanel) el.profileAboutPanel.hidden = !isProfileAbout;
     if (el.profileSupportPanel) el.profileSupportPanel.hidden = !isProfileSupport;
-    if (el.tabDownload) el.tabDownload.classList.toggle('is-active', !isLib && !isSub && !isTor && !isCom && !isUp && !isDw && !isAppIntro && !isMusic && !isImage && !isCp && !isSr && !isShare && !isPage && !isSt && !isBridge && !isProfileGroup && !isIdPhoto && !isCd);
+    if (el.tabDownload) el.tabDownload.classList.toggle('is-active', !isLib && !isSub && !isTor && !isCom && !isUp && !isDw && !isAppIntro && !isMusic && !isImage && !isDoc && !isCp && !isSr && !isShare && !isPage && !isSt && !isBridge && !isProfileGroup && !isIdPhoto && !isCd);
     if (el.tabCloudDrive) el.tabCloudDrive.classList.toggle('is-active', isCd);
     if (el.tabLibrary) el.tabLibrary.classList.toggle('is-active', isLib);
     if (el.tabSubscribe) el.tabSubscribe.classList.toggle('is-active', isSub);
@@ -19037,6 +19056,7 @@ el.dwVidPlayer.hidden = true;
     if (el.tabUploadConvert) el.tabUploadConvert.classList.toggle('is-active', isUp);
     if (el.tabMusicConvert) el.tabMusicConvert.classList.toggle('is-active', isMusic);
     if (el.tabImageConvert) el.tabImageConvert.classList.toggle('is-active', isImage);
+    if (el.tabDocConvert) el.tabDocConvert.classList.toggle('is-active', isDoc);
     if (el.tabCompress) el.tabCompress.classList.toggle('is-active', isCp);
     if (el.tabSr) el.tabSr.classList.toggle('is-active', isSr);
     if (el.tabShare) el.tabShare.classList.toggle('is-active', isShare);
@@ -19047,7 +19067,7 @@ el.dwVidPlayer.hidden = true;
     if (el.sTabHome) el.sTabHome.classList.toggle('is-active', isHome);
     if (el.tabDw) el.tabDw.classList.toggle('is-active', isDw);
     if (el.tabAppIntro) el.tabAppIntro.classList.toggle('is-active', isAppIntro);
-    const _isDefault = !isLib && !isSub && !isTor && !isCom && !isUp && !isDw && !isMusic && !isImage && !isCp && !isSr && !isShare && !isPage && !isSt && !isAppIntro && !isBridge && !isProfileGroup && !isHome && !isIdPhoto;
+    const _isDefault = !isLib && !isSub && !isTor && !isCom && !isUp && !isDw && !isMusic && !isImage && !isDoc && !isCp && !isSr && !isShare && !isPage && !isSt && !isAppIntro && !isBridge && !isProfileGroup && !isHome && !isIdPhoto;
     if (el.sTabDownload) el.sTabDownload.classList.toggle('is-active', _isDefault);
     if (el.sTabLibrary) el.sTabLibrary.classList.toggle('is-active', isLib);
     if (el.sTabSubscribe) el.sTabSubscribe.classList.toggle('is-active', isSub);
@@ -19056,6 +19076,7 @@ el.dwVidPlayer.hidden = true;
     if (el.sTabUploadConvert) el.sTabUploadConvert.classList.toggle('is-active', isUp);
     if (el.sTabMusicConvert) el.sTabMusicConvert.classList.toggle('is-active', isMusic);
     if (el.sTabImageConvert) el.sTabImageConvert.classList.toggle('is-active', isImage);
+    if (el.sTabDocConvert) el.sTabDocConvert.classList.toggle('is-active', isDoc);
     if (el.sTabCompress) el.sTabCompress.classList.toggle('is-active', isCp);
     if (el.sTabSr) el.sTabSr.classList.toggle('is-active', isSr);
     if (el.sTabShare) el.sTabShare.classList.toggle('is-active', isShare);
@@ -19558,6 +19579,170 @@ el.dwVidPlayer.hidden = true;
   if (el.tabTorrent) el.tabTorrent.addEventListener('click', () => switchView('torrent'));
   if (el.tabMusicConvert) el.tabMusicConvert.addEventListener('click', () => switchView('musicconvert'));
   if (el.tabImageConvert) el.tabImageConvert.addEventListener('click', () => switchView('imageconvert'));
+  if (el.tabDocConvert) el.tabDocConvert.addEventListener('click', () => switchView('docconvert'));
+
+  // ===================== 文档转换：PDF → PPT / Word（2026-11-19 新增）=====================
+  // 走 /api/doc-convert 上传 → 后台线程用 LibreOffice（或内置回退）转换 → 轮询 → 双下载。
+  const docState = { file: null, jobId: '', timer: 0, busy: false };
+
+  const docSetStatus = (text, pct) => {
+    if (!el.docStatus) return;
+    el.docStatus.hidden = false;
+    if (el.docStatusText) el.docStatusText.textContent = text || '';
+    if (el.docBarFill) el.docBarFill.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
+  };
+
+  const docShowFile = (file) => {
+    docState.file = file || null;
+    if (docState.timer) { clearInterval(docState.timer); docState.timer = 0; }
+    if (el.docCount) el.docCount.textContent = file ? ('已选择：' + file.name) : '尚未选择文件';
+    if (el.docStartBtn) { el.docStartBtn.hidden = !file; el.docStartBtn.disabled = false; }
+    if (el.docResult) el.docResult.hidden = true;
+    if (el.docStatus) el.docStatus.hidden = true;
+  };
+
+  const docShowResult = (j) => {
+    if (!el.docResult) return;
+    el.docResult.hidden = false;
+    const base = window.VDL_API_BASE || '';
+    const dev = encodeURIComponent(deviceId());
+    const name = String(j.src_name || 'document').replace(/\.pdf$/i, '');
+    const q = base + '/api/doc-convert/' + encodeURIComponent(docState.jobId) + '/file?device=' + dev;
+    if (el.docPptxBtn) {
+      el.docPptxBtn.href = q + '&kind=pptx';
+      el.docPptxBtn.setAttribute('download', name + '.pptx');
+    }
+    if (el.docDocxBtn) {
+      el.docDocxBtn.href = q + '&kind=docx';
+      el.docDocxBtn.setAttribute('download', name + '.docx');
+    }
+    if (el.docResultTip) {
+      const eng = j.engine === 'builtin'
+        ? '内置引擎（装了 LibreOffice 版面会更接近原稿）'
+        : 'LibreOffice 引擎（版面最接近原稿）';
+      el.docResultTip.textContent = '共 ' + (j.pages || 0) + ' 页 · ' + eng + ' · 文字可编辑，动效需自行添加。';
+    }
+  };
+
+  const docPoll = () => {
+    if (docState.timer) clearInterval(docState.timer);
+    const tick = () => {
+      if (!docState.jobId) return;
+      fetch('/api/doc-convert/' + encodeURIComponent(docState.jobId), {
+        headers: Object.assign({ 'X-Device-Id': deviceId() }, authBearerHeaders()),
+      })
+        .then(r => r.json())
+        .then(j => {
+          if (j.status === 'completed') {
+            clearInterval(docState.timer); docState.timer = 0;
+            docState.busy = false;
+            if (el.docStartBtn) el.docStartBtn.disabled = false;
+            docSetStatus('转换完成', 100);
+            docShowResult(j);
+          } else if (j.status === 'failed') {
+            clearInterval(docState.timer); docState.timer = 0;
+            docState.busy = false;
+            if (el.docStartBtn) el.docStartBtn.disabled = false;
+            docSetStatus('转换失败：' + (j.error || '未知错误'), 0);
+          } else {
+            const st = j.stage || '转换中…';
+            let pct = 50;
+            if (st.indexOf('Word') >= 0) pct = 85;
+            else if (st.indexOf('LibreOffice') >= 0 || st.indexOf('专业引擎') >= 0) pct = 35;
+            docSetStatus(st, pct);
+          }
+        })
+        .catch(() => { /* 网络抖动，继续轮询 */ });
+    };
+    docState.timer = setInterval(tick, 1200);
+    tick();
+  };
+
+  const docStart = () => {
+    const f = docState.file;
+    if (!f || docState.busy) return;
+    docState.busy = true;
+    if (el.docStartBtn) el.docStartBtn.disabled = true;
+    if (el.docResult) el.docResult.hidden = true;
+    docSetStatus('正在上传 PDF…', 8);
+    const fd = new FormData();
+    fd.append('file', f, f.name);
+    fetch('/api/doc-convert', {
+      method: 'POST',
+      body: fd,
+      headers: Object.assign({ 'X-Device-Id': deviceId() }, authBearerHeaders()),
+    })
+      .then(r => r.json().then(j => ({ ok: r.ok, j: j })))
+      .then((res) => {
+        const j = res.j || {};
+        if (!res.ok || !j.job_id) throw new Error(j.detail || '创建转换任务失败');
+        docState.jobId = j.job_id;
+        docSetStatus(j.engine_hint === 'builtin' ? '用内置引擎重建版面…' : '用 LibreOffice 还原版面…', 20);
+        docPoll();
+      })
+      .catch(err => {
+        docState.busy = false;
+        if (el.docStartBtn) el.docStartBtn.disabled = false;
+        docSetStatus('转换失败：' + ((err && err.message) || '请检查文件后重试'), 0);
+      });
+  };
+
+  if (el.docPickBtn) el.docPickBtn.addEventListener('click', () => {
+    if (!el.docFileInput) return;
+    el.docFileInput.value = '';
+    el.docFileInput.click();
+  });
+  if (el.docFileInput) el.docFileInput.addEventListener('change', () => {
+    const f = el.docFileInput.files && el.docFileInput.files[0];
+    if (f) docShowFile(f);
+  });
+  if (el.docStartBtn) el.docStartBtn.addEventListener('click', docStart);
+
+  // —— 专业引擎按需下载（装到 App 数据目录，不动系统）——
+  const docEngineRender = (j) => {
+    const row = el.docEngineRow;
+    if (!row) return;
+    if (j.installed) {
+      row.textContent = '✅ 专业引擎已就绪，转换会用视觉最接近原稿的引擎。';
+      return;
+    }
+    if (j.status === 'downloading' || j.status === 'installing') {
+      row.textContent = (j.status === 'downloading' ? '正在从云端下载专业引擎 ' : '正在安装专业引擎 ')
+        + (j.progress || 0) + '%（约 286MB，请稍候）';
+      setTimeout(docEngineCheck, 1500);
+      return;
+    }
+    if (j.status === 'failed') {
+      row.innerHTML = '⚠️ 专业引擎下载失败：' + (j.error || '未知原因')
+        + '　<a href="#" data-doc-engine-install>重试</a>';
+    } else {
+      row.innerHTML = '未安装专业引擎（约 286MB）。<a href="#" data-doc-engine-install>点此下载</a>'
+        + '：装完版面最接近原稿；不装也能转，但复杂版式会糙一些。';
+    }
+    const a = row.querySelector('[data-doc-engine-install]');
+    if (a) a.addEventListener('click', (e) => { e.preventDefault(); docEngineInstall(); });
+  };
+
+  const docEngineInstall = () => {
+    if (el.docEngineRow) el.docEngineRow.textContent = '正在启动下载…';
+    fetch('/api/doc-engine/install', {
+      method: 'POST',
+      headers: Object.assign({ 'X-Device-Id': deviceId() }, authBearerHeaders()),
+    })
+      .then(r => r.json())
+      .then(docEngineRender)
+      .catch(() => { if (el.docEngineRow) el.docEngineRow.textContent = '启动下载失败，请稍后再试'; });
+  };
+
+  const docEngineCheck = () => {
+    fetch('/api/doc-engine/status', {
+      headers: Object.assign({ 'X-Device-Id': deviceId() }, authBearerHeaders()),
+    })
+      .then(r => r.json())
+      .then(docEngineRender)
+      .catch(() => {});
+  };
+  docEngineCheck();
   if (el.tabCompress) el.tabCompress.addEventListener('click', () => switchView('compress'));
   if (el.tabProfile) el.tabProfile.addEventListener('click', () => switchView('profile'));
   if (el.tabSr) el.tabSr.addEventListener('click', () => switchView('sr'));
@@ -19898,6 +20083,7 @@ el.dwVidPlayer.hidden = true;
     [el.sTabTorrent, 'torrent'],
     [el.sTabMusicConvert, 'musicconvert'],
     [el.sTabImageConvert, 'imageconvert'],
+    [el.sTabDocConvert, 'docconvert'],
     [el.sTabCompress, 'compress'],
     [el.sTabSr, 'sr'],
     [el.sTabShare, 'share'],   // 生成二维码（2026-09-20 新增）

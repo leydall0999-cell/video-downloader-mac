@@ -49,7 +49,8 @@ const eq = (a, b, msg) => { count++; assert.equal(a, b, msg); };
 const EXPECT = new Map([
   ['download',      ['class="hero-link-wrap"', 'class="panel input-panel"']],
   ['uploadconvert', ['id="uploadConvertView"', 'id="musicConvertView"']],
-  ['musicconvert',  ['id="musicConvertView"', 'id="imageConvertView"']],
+  ['musicconvert',  ['id="musicConvertView"', 'id="docConvertView"']],
+  ['docconvert',    ['id="docConvertView"', 'id="imageConvertView"']],
   ['imageconvert',  ['id="imageConvertView"', 'id="compressView"']],
   ['compress',      ['id="compressView"', 'id="srView"']],
   ['sr',            ['id="srView"', 'id="shareView"']],
@@ -215,10 +216,10 @@ ok(/@keyframes howtoFlash\s*\{/.test(cssCode),
 // 背景：引导条只在首次进入时自动展开一次；没有这个按钮，用户忘了就没有入口。
 const BTN_RE = /<button type="button" class="howto-btn"[^>]*>\?<\/button>/g;
 const btnCount = (indexHtml.match(BTN_RE) || []).length;
-eq(btnCount, 16,
-  `「?」查看引导按钮应恰好 16 个（11 个纯标题视图 + 4 个 lib-head 视图 + 下载页），实际 ${btnCount} 个`);
+eq(btnCount, 17,
+  `「?」查看引导按钮应恰好 17 个（12 个纯标题视图 + 4 个 lib-head 视图 + 下载页），实际 ${btnCount} 个`);
 
-const TITLE_IDS = ['ucTitle', 'musTitle', 'imgTitle', 'cpTitle', 'srTitle',
+const TITLE_IDS = ['ucTitle', 'musTitle', 'imgTitle', 'docTitle', 'cpTitle', 'srTitle',
   'shareTitle', 'pageTitle', 'bridgeTitle', 'sbTitle', 'dwTitle', 'idpTitle'];
 for (const id of TITLE_IDS) {
   const reBtn = new RegExp(`<h2 id="${id}"[^>]*>[\\s\\S]*?class="howto-btn"[\\s\\S]*?</h2>`);
