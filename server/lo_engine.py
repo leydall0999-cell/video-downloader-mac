@@ -9,6 +9,7 @@
 """
 import os
 import platform
+import plistlib
 import shutil
 import subprocess
 import tempfile
@@ -24,6 +25,7 @@ _FILENAME = "LibreOffice_%s_MacOS_%s.dmg"
 
 _lock = threading.Lock()
 _state = {"status": "idle", "progress": 0, "done": 0, "total": 0, "error": ""}
+_dock_patched = set()  # 已补过 LSUIElement 的 app 路径，避免轮询时反复读写 plist
 
 
 def _arch() -> str:
@@ -62,9 +64,45 @@ def _soffice_in(app: str) -> str:
     return p if os.path.isfile(p) else ""
 
 
+def _patch_no_dock(app: str) -> bool:
+    """给引擎 Info.plist 补 LSUIElement=YES，让 headless 转换不在 Dock 冒图标。
+
+    macOS 只要 .app 被启动就会在 Dock 显示图标（即使 --headless 无窗口），
+    除非 Info.plist 声明自己是后台程序（LSUIElement）。从 dmg 装出来的
+    LibreOffice 没有这个键，所以每次转换都会弹一下 Dock。
+
+    注意：改 plist 会让原代码签名失效，但引擎是直接 exec 的 Mach-O、
+    不走 LaunchServices/Gatekeeper（且安装时已撕掉 quarantine），实测仍可运行
+    （`soffice --version` 正常）。故此处不重签——重签反而会把官方签名降级。
+    失败不影响安装/转换，仅打日志。
+    """
+    if not app or app in _dock_patched:
+        return False
+    plist = os.path.join(app, "Contents", "Info.plist")
+    try:
+        with open(plist, "rb") as fh:
+            data = plistlib.load(fh)
+        if data.get("LSUIElement") is True:
+            _dock_patched.add(app)
+            return True
+        data["LSUIElement"] = True
+        with open(plist, "wb") as fh:
+            plistlib.dump(data, fh)
+        _dock_patched.add(app)
+        print("[lo_engine] 已为 LibreOffice 补 LSUIElement（Dock 不再显示图标）", flush=True)
+        return True
+    except Exception as exc:
+        print("[lo_engine] 补 LSUIElement 失败（不影响转换）: %s" % exc, flush=True)
+        return False
+
+
 def installed_app() -> str:
     for app in (bundled_path(), system_path()):
         if app and _soffice_in(app):
+            # 存量引擎（老版本已下载好的）也补一次，保证升级不到安装流程的用户
+            # 同样不再 Dock 冒图标；幂等，已设置会直接返回。
+            if app == bundled_path():
+                _patch_no_dock(app)
             return app
     return ""
 
@@ -159,6 +197,8 @@ def _install_from_volume(vol: str):
         ["xattr", "-dr", "com.apple.quarantine", dst],
         capture_output=True, timeout=180,
     )
+    # 装完立即补 LSUIElement：否则每次 headless 转换都会在 Dock 冒图标
+    _patch_no_dock(dst)
 
 
 def _run():
