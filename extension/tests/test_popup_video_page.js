@@ -80,6 +80,25 @@ check('如实说明拿不到整体大小（加密流是分片的）', /抓不到
 check('popup.css 定义 .empty-title', /\.empty-title\s*\{/.test(css));
 check('popup.css 定义 .empty-meta', /\.empty-meta\s*\{/.test(css));
 
+// ⑩ 可视清晰度档位条（2026-11-20 用户「没有选择分辨率、都是默认」）：
+// 原来的 <select> 收起只显示一行淡字，用户以为不能选。现在铺一排一眼可见的档位
+// 按钮，点选写回同一 select 并派发 change，复用既有上报/记忆逻辑。
+const chipBlock = (html.match(/<div class="qchips"[\s\S]*?<\/div>/) || [''])[0];
+check('popup.html 含可视档位条 #qualityChips', /id="qualityChips"/.test(chipBlock));
+const chipCount = (chipBlock.match(/class="qchip"/g) || []).length;
+check('档位条含 8 档（与下拉一致）', chipCount === 8, chipCount);
+check('档位条每档 data-q 对应下拉 value',
+  ['best','2160','1440','1080','720','480','360','audio'].every(v =>
+    chipBlock.indexOf('data-q="' + v + '"') >= 0));
+check('档位点击写回 select 并派发 change（复用既有逻辑）',
+  /sel\.value = v;[\s\S]*dispatchEvent\(new Event\('change'/.test(js));
+check('syncQualityUI 同步高亮当前档',
+  /classList\.toggle\('is-on', chips\[i\]\.getAttribute\('data-q'\) === q\)/.test(js));
+check('档位条初始立即高亮（不依赖 chrome 回调）',
+  /syncQualityUI\(\);[\s\S]*?\}\)\(\);/.test(js));
+check('popup.css 定义 .qchip 与 .qchip.is-on',
+  /\.qchip\s*\{/.test(css) && /\.qchip\.is-on\s*\{/.test(css));
+
 console.log('');
 console.log('=========================================');
 console.log('  通过: ' + PASS + '   失败: ' + FAIL);
