@@ -18,6 +18,11 @@ from typing import Any
 # 版本降序。每项：version / date / items（面向用户的白话说明，一条一件事）
 CHANGELOG: list[dict[str, Any]] = [
     {
+        "version": "1.1.31",
+        "date": "2026-11-20",
+        "items": [],
+    },
+    {
         "version": "1.1.30",
         "date": "2026-11-20",
         "items": [],
