@@ -3555,9 +3555,35 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
   flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+/* 广告贴片（2026-11-20）：右栏折叠卡内的条目行。窄右栏里一行放不下就换行，
+   素材按钮吃剩余宽度并省略超长文件名，序号/时长固定窄列，删除按钮恒在最右。 */
+#commentaryView .com-fold-card > .com-ad-section {
+  background: none; border: none; border-radius: 0; margin: 0; padding: .15rem .6rem .6rem;
+  min-width: 0;
+}
+.com-ad-list { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .4rem; }
+.com-ad-row {
+  border: 1px solid var(--line, #e6e6e6); border-radius: 8px;
+  padding: .45rem .5rem; background: rgba(0, 0, 0, .015);
+}
+.com-ad-line { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+.com-ad-line select.com-ad-pos {
+  flex: 0 0 auto; font-size: .74rem; padding: .2rem .3rem;
+  border: 1px solid var(--line, #e6e6e6); border-radius: 6px; background: #fff;
+}
+.com-ad-line .com-ad-idx { flex: 0 0 3.4rem; width: 3.4rem; font-size: .74rem; padding: .2rem .3rem; }
+.com-ad-line .com-ad-pick {
+  flex: 1 1 6rem; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: .74rem; text-align: left;
+}
+.com-ad-line .com-ad-dur { flex: 0 0 3.2rem; width: 3.2rem; font-size: .74rem; padding: .2rem .3rem; }
+.com-ad-line .com-ad-unit { flex: 0 0 auto; font-size: .7rem; color: var(--text-mute); }
+.com-ad-line .com-ad-del { flex: 0 0 auto; padding: .1rem .35rem; font-size: .78rem; line-height: 1.2; }
+.com-ad-text { margin-top: .35rem; font-size: .76rem; }
+#commentaryView .com-ad-section .com-retain-note { margin-top: .45rem; }
+
 /* 下拉项置灰（不可用项直接灰显不可选） */
-.com-select option:disabled { color: #b0b0b0; }
-.com-select option { font-size: .78rem; }
+.com-select option:disabled { color: #b0b0b0; }.com-select option { font-size: .78rem; }
 /* 配音引擎 select：与 trigger 视觉一致（紧凑小按钮） */
 .com-select {
   width: 100%; min-height: 34px; padding: .35rem .55rem;

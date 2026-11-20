@@ -12034,6 +12034,128 @@ el.dwVidPlayer.hidden = true;
    *  script-only 走 comGetOptions() 把 crop_ratio 放到 JSON body 顶层，后端
    *  CommentaryRequest 对它限长 32；渲染端点是 Form 字段、无长度限制，
    *  所以新增后缀只放 render 的 FormData，既有 script-only 请求逐字节不变。 */
+  /* ── 广告贴片（2026-11-20，用户「想给视频插广告，现在只能插广告语」）───────
+     画面素材（视频/图片）静音播放 + 广告词用当前配音念；位置可选片头/片尾/第 N 段后。
+     🔴 素材只存**本机绝对路径**（桌面壳 chooseFiles 给的原路径），既不上传也不复制：
+        管线与 App 同机，直接按路径读；这也避免了大文件走一遍上传的时间与配额。 */
+  const COM_ADS_KEY = 'vdlComAds';
+  let comAds = [];
+  try {
+    const _raw = localStorage.getItem(COM_ADS_KEY);
+    comAds = _raw ? JSON.parse(_raw) : [];
+  } catch (_e) { comAds = []; }
+  if (!Array.isArray(comAds)) comAds = [];
+
+  const comAdsPersist = () => {
+    try { localStorage.setItem(COM_ADS_KEY, JSON.stringify(comAds)); } catch (_e) { /* 隐私模式忽略 */ }
+    comAdsRender();
+  };
+
+  const comAdsRender = () => {
+    const box = document.getElementById('comAdList');
+    if (!box) return;
+    box.innerHTML = comAds.map((ad, i) => {
+      const name = ad.name || (ad.media ? String(ad.media).split(/[\\/]/).pop() : '');
+      const isAfter = ad.pos === 'after';
+      return `
+      <div class="com-ad-row" data-i="${i}">
+        <div class="com-ad-line">
+          <select class="com-ad-pos" data-i="${i}" title="广告插在哪">
+            <option value="head"${ad.pos === 'head' ? ' selected' : ''}>片头</option>
+            <option value="tail"${ad.pos === 'tail' ? ' selected' : ''}>片尾</option>
+            <option value="after"${isAfter ? ' selected' : ''}>第 N 段后</option>
+          </select>
+          <input type="number" class="com-ad-idx" data-i="${i}" min="1" step="1"
+                 value="${Number(ad.idx) || 1}" ${isAfter ? '' : 'hidden'} title="插在第几段解说之后" />
+          <button type="button" class="btn btn-sm btn-ghost com-ad-pick" data-i="${i}"
+                  title="${ad.media ? escHtml(String(ad.media)) : '从本机选择视频或图片'}">${name ? escHtml(name) : '选择素材'}</button>
+          <input type="number" class="com-ad-dur" data-i="${i}" min="0" max="120" step="1"
+                 value="${Number(ad.dur) || 0}" title="广告时长（秒）；0 或留空 = 跟随广告词长度" />
+          <span class="com-ad-unit">秒</span>
+          <button type="button" class="btn btn-sm btn-ghost com-ad-del" data-i="${i}" title="删除这条广告">✕</button>
+        </div>
+        <textarea class="adv-input com-ad-text" data-i="${i}" rows="2"
+                  placeholder="广告词：用当前配音念出来；留空则画面静音、只有画面">${escHtml(ad.text || '')}</textarea>
+      </div>`;
+    }).join('');
+    const hint = document.getElementById('comAdFoldHint');
+    if (hint) {
+      const n = comAds.filter(a => a && a.media).length;
+      hint.textContent = n ? `${n} 条` : '未添加';
+    }
+  };
+
+  const comAdsPick = (i) => {
+    const api = (window.VDL && window.VDL.desktop) || null;
+    if (!api || typeof api.chooseFiles !== 'function') {
+      const hint = document.getElementById('comAdFoldHint');
+      if (hint) hint.textContent = '网页版不支持本机素材';
+      return;
+    }
+    Promise.resolve(api.chooseFiles('any')).then((list) => {
+      if (!list || !list.length) return;
+      const p = String(list[0]);
+      comAds[i].media = p;
+      comAds[i].name = p.split(/[\\/]/).pop();
+      comAdsPersist();
+    }).catch(() => {});
+  };
+
+  /** 下发用：只保留真正选了素材的条目；空数组=不插广告（老行为）。 */
+  const comGetAdsSpec = () => comAds
+    .filter(a => a && a.media)
+    .map(a => ({
+      pos: a.pos === 'head' ? 'head' : (a.pos === 'after' ? 'after' : 'tail'),
+      idx: Math.max(1, parseInt(a.idx, 10) || 1),
+      media: String(a.media),
+      dur: Math.max(0, Math.min(120, parseFloat(a.dur) || 0)),
+      text: String(a.text || '').trim(),
+    }));
+
+  (() => {
+    const box = document.getElementById('comAdList');
+    if (!box) return;
+    const addBtn = document.getElementById('comAdAdd');
+    if (addBtn) {
+      addBtn.addEventListener('click', () => {
+        comAds.push({ pos: 'tail', idx: 1, media: '', name: '', dur: 0, text: '' });
+        comAdsPersist();
+      });
+    }
+    box.addEventListener('click', (e) => {
+      const pick = e.target.closest('.com-ad-pick');
+      if (pick) { comAdsPick(Number(pick.dataset.i)); return; }
+      const del = e.target.closest('.com-ad-del');
+      if (del) {
+        comAds.splice(Number(del.dataset.i), 1);
+        comAdsPersist();
+      }
+    });
+    const onEdit = (e) => {
+      const t = e.target;
+      const i = Number(t.dataset.i);
+      if (!Number.isFinite(i) || !comAds[i]) return;
+      if (t.classList.contains('com-ad-pos')) {
+        comAds[i].pos = t.value;
+        comAdsPersist();          // 位置变了要重渲染：第 N 段后的序号框显隐跟着变
+      } else if (t.classList.contains('com-ad-idx')) {
+        comAds[i].idx = Math.max(1, parseInt(t.value, 10) || 1);
+        try { localStorage.setItem(COM_ADS_KEY, JSON.stringify(comAds)); } catch (_e) {}
+      } else if (t.classList.contains('com-ad-dur')) {
+        comAds[i].dur = Math.max(0, Math.min(120, parseFloat(t.value) || 0));
+        try { localStorage.setItem(COM_ADS_KEY, JSON.stringify(comAds)); } catch (_e) {}
+      } else if (t.classList.contains('com-ad-text')) {
+        comAds[i].text = t.value;
+        try { localStorage.setItem(COM_ADS_KEY, JSON.stringify(comAds)); } catch (_e) {}
+      }
+    };
+    box.addEventListener('change', onEdit);
+    box.addEventListener('input', (e) => {
+      if (e.target.classList.contains('com-ad-text')) onEdit(e);
+    });
+    comAdsRender();
+  })();
+
   const comGetCropSpec = (withExtra = false) => {
     const base = comGetAspect();
     let suffix = '';
@@ -12084,6 +12206,13 @@ el.dwVidPlayer.hidden = true;
       // （Form 无限长，script-only 的 crop_ratio 限长 32，仍只发 comGetAspect()）。
       const targetMin = comGetTargetMin();
       if (targetMin > 0) spec += `!dur=${targetMin}`;
+      // 广告贴片：片头/片尾/第 N 段后，素材是本机路径 + 广告词。
+      // 同样只走 render Form（crop_ratio 无限长），script-only 那条限长 32 不承载。
+      const ads = comGetAdsSpec();
+      if (ads.length) {
+        const adsB64 = comB64EncodeUnicode(JSON.stringify(ads));
+        if (adsB64) spec += `!ads=${adsB64}`;
+      }
     }
     return spec;
   };
