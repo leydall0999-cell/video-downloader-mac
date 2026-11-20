@@ -52,7 +52,7 @@ globalThis.chrome = {
   },
   runtime: {
     lastError: null,
-    getManifest: () => ({ version: '1.0.58' }),
+    getManifest: () => ({ version: '1.0.59' }),
     onMessage: { addListener: (fn) => { L.message = fn; } },
     onInstalled: { addListener: () => {} },
     onStartup: { addListener: () => {} },
