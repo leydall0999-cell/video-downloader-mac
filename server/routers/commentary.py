@@ -814,6 +814,36 @@ def commentary_precheck(
     return _pre(request, dur, engine=engine)
 
 
+@router.post("/api/commentary/ad-probe")
+def commentary_ad_probe(path: str = app.Form("")) -> dict:
+    """广告素材探测（2026-11-20）：给界面算出「视频多长 / 图片无固有长度」。
+
+    为什么要它：用户要求「图片广告时长按文案长度、视频广告时长按视频长度」，
+    界面得在写文案时就知道视频多长，才能提示该写多少字。
+    只读；只探测**已存在的本机文件**（桌面壳 chooseFiles 给的原始路径）。
+    探测失败一律返回 ok=False + duration=0，界面回落到手工填时长，不影响渲染。
+    """
+    p = (path or "").strip()
+    if not p:
+        return {"ok": False, "kind": "", "duration": 0.0}
+    try:
+        src = app.Path(p)
+        if not src.is_file():
+            return {"ok": False, "kind": "", "duration": 0.0}
+        ext = src.suffix.lower()
+        img_exts = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
+        kind = "image" if ext in img_exts else "video"
+        dur = 0.0
+        if kind == "video":
+            try:
+                dur = float(app._probe_video_duration(str(src)) or 0.0)
+            except Exception:      # noqa: BLE001 — 探测失败不该阻断界面
+                dur = 0.0
+        return {"ok": True, "kind": kind, "duration": round(dur, 2)}
+    except Exception:              # noqa: BLE001
+        return {"ok": False, "kind": "", "duration": 0.0}
+
+
 @router.get("/api/commentary/list")
 def commentary_list() -> dict:
     """按修改时间倒序列出所有已生成的解说成片。

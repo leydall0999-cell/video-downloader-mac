@@ -12051,12 +12051,40 @@ el.dwVidPlayer.hidden = true;
     comAdsRender();
   };
 
+  /* 中文 TTS 语速经验值（Xiaoxiao 正常语速约 4.5 字/秒），只用于界面估算文案时长；
+     真实时长以渲染时 TTS 出来的音频为准（管线按实测秒数定画面停留）。 */
+  const COM_AD_CPS = 4.5;
+  const comAdTextSec = (t) => String(t || '').replace(/\s+/g, '').length / COM_AD_CPS;
+
+  /** 一条广告的「口径说明」：图片由文案定时长，视频由视频定时长，手填则覆盖。 */
+  const comAdMeta = (ad) => {
+    const words = String(ad.text || '').replace(/\s+/g, '').length;
+    const sec = comAdTextSec(ad.text);
+    const manual = Number(ad.dur) || 0;
+    const md = Number(ad.mediaDur) || 0;
+    if (!ad.media) return '先选素材；图片按文案定长短，视频按视频本身定长短';
+    if (ad.kind === 'image') {
+      if (manual > 0) return `图片 · 手填 ${manual.toFixed(1)} 秒（覆盖文案长度）`;
+      const stay = sec > 0 ? sec + 0.6 : 6;
+      return `图片 · 文案 ${words} 字 ≈ ${sec.toFixed(1)} 秒 → 画面停留 ${stay.toFixed(1)} 秒（自动）`;
+    }
+    if (manual > 0) return `视频${md ? ' ' + md.toFixed(1) + ' 秒' : ''} · 手填 ${manual.toFixed(1)} 秒（覆盖视频长度）`;
+    if (!md) return `视频 · 时长待探测${sec > 0 ? `（文案 ${words} 字 ≈ ${sec.toFixed(1)} 秒）` : ''}`;
+    const limit = Math.floor(md * COM_AD_CPS);
+    if (sec <= 0) return `视频 ${md.toFixed(1)} 秒 · 建议文案不超过 ${limit} 字`;
+    if (sec > md) {
+      return `⚠️ 文案 ${words} 字 ≈ ${sec.toFixed(1)} 秒，超过视频 ${md.toFixed(1)} 秒 → 视频会循环播放，建议删到 ${limit} 字以内`;
+    }
+    return `视频 ${md.toFixed(1)} 秒 · 文案 ${words} 字 ≈ ${sec.toFixed(1)} 秒，剩余 ${(md - sec).toFixed(1)} 秒静音画面 · 建议 ≤ ${limit} 字`;
+  };
+
   const comAdsRender = () => {
     const box = document.getElementById('comAdList');
     if (!box) return;
     box.innerHTML = comAds.map((ad, i) => {
       const name = ad.name || (ad.media ? String(ad.media).split(/[\\/]/).pop() : '');
       const isAfter = ad.pos === 'after';
+      const kindTxt = !ad.media ? '' : (ad.kind === 'image' ? '图片' : '视频');
       return `
       <div class="com-ad-row" data-i="${i}">
         <div class="com-ad-line">
@@ -12069,13 +12097,15 @@ el.dwVidPlayer.hidden = true;
                  value="${Number(ad.idx) || 1}" ${isAfter ? '' : 'hidden'} title="插在第几段解说之后" />
           <button type="button" class="btn btn-sm btn-ghost com-ad-pick" data-i="${i}"
                   title="${ad.media ? escHtml(String(ad.media)) : '从本机选择视频或图片'}">${name ? escHtml(name) : '选择素材'}</button>
+          ${kindTxt ? `<span class="com-ad-kind">${kindTxt}</span>` : ''}
           <input type="number" class="com-ad-dur" data-i="${i}" min="0" max="120" step="1"
-                 value="${Number(ad.dur) || 0}" title="广告时长（秒）；0 或留空 = 跟随广告词长度" />
-          <span class="com-ad-unit">秒</span>
+                 value="${Number(ad.dur) || 0}" placeholder="自动"
+                 title="填 0 = 自动：图片跟随文案长度，视频跟随视频长度；填数字 = 强制这个秒数" />
           <button type="button" class="btn btn-sm btn-ghost com-ad-del" data-i="${i}" title="删除这条广告">✕</button>
         </div>
+        <div class="com-ad-meta" data-i="${i}">${escHtml(comAdMeta(ad))}</div>
         <textarea class="adv-input com-ad-text" data-i="${i}" rows="2"
-                  placeholder="广告词：用当前配音念出来；留空则画面静音、只有画面">${escHtml(ad.text || '')}</textarea>
+                  placeholder="广告词：用当前配音念出来；留空则只有画面（静音）">${escHtml(ad.text || '')}</textarea>
       </div>`;
     }).join('');
     const hint = document.getElementById('comAdFoldHint');
@@ -12097,7 +12127,20 @@ el.dwVidPlayer.hidden = true;
       const p = String(list[0]);
       comAds[i].media = p;
       comAds[i].name = p.split(/[\\/]/).pop();
+      // 先按扩展名判类型（立即可用），再用后端探测补真实时长：视频靠它算「建议文案字数」
+      comAds[i].kind = /\.(jpe?g|png|webp|bmp|gif|tiff?)$/i.test(p) ? 'image' : 'video';
+      comAds[i].mediaDur = 0;
       comAdsPersist();
+      fetch('/api/commentary/ad-probe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'path=' + encodeURIComponent(p),
+      }).then(r => r.json()).then(j => {
+        if (!j || !j.ok) return;
+        comAds[i].kind = j.kind || comAds[i].kind;
+        comAds[i].mediaDur = Number(j.duration) || 0;
+        comAdsPersist();
+      }).catch(() => {});
     }).catch(() => {});
   };
 
@@ -12138,16 +12181,21 @@ el.dwVidPlayer.hidden = true;
       if (t.classList.contains('com-ad-pos')) {
         comAds[i].pos = t.value;
         comAdsPersist();          // 位置变了要重渲染：第 N 段后的序号框显隐跟着变
-      } else if (t.classList.contains('com-ad-idx')) {
+        return;
+      }
+      if (t.classList.contains('com-ad-idx')) {
         comAds[i].idx = Math.max(1, parseInt(t.value, 10) || 1);
-        try { localStorage.setItem(COM_ADS_KEY, JSON.stringify(comAds)); } catch (_e) {}
       } else if (t.classList.contains('com-ad-dur')) {
         comAds[i].dur = Math.max(0, Math.min(120, parseFloat(t.value) || 0));
-        try { localStorage.setItem(COM_ADS_KEY, JSON.stringify(comAds)); } catch (_e) {}
       } else if (t.classList.contains('com-ad-text')) {
         comAds[i].text = t.value;
-        try { localStorage.setItem(COM_ADS_KEY, JSON.stringify(comAds)); } catch (_e) {}
+      } else {
+        return;
       }
+      try { localStorage.setItem(COM_ADS_KEY, JSON.stringify(comAds)); } catch (_e) {}
+      // 只更新那一行的口径说明，不整块重渲染 —— 否则输入文案时光标会被打断
+      const meta = box.querySelector(`.com-ad-meta[data-i="${i}"]`);
+      if (meta) meta.textContent = comAdMeta(comAds[i]);
     };
     box.addEventListener('change', onEdit);
     box.addEventListener('input', (e) => {
