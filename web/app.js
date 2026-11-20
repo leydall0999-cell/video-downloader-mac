@@ -12045,6 +12045,14 @@ el.dwVidPlayer.hidden = true;
     comAds = _raw ? JSON.parse(_raw) : [];
   } catch (_e) { comAds = []; }
   if (!Array.isArray(comAds)) comAds = [];
+  // 兼容旧数据（只有 media 单值）：统一收敛成 medias 数组，多图幻灯片就靠它
+  comAds = comAds.map((a) => {
+    if (!a || typeof a !== 'object') return null;
+    const medias = Array.isArray(a.medias) && a.medias.length
+      ? a.medias.slice()
+      : (a.media ? [a.media] : []);
+    return Object.assign({}, a, { medias });
+  }).filter(Boolean);
 
   const comAdsPersist = () => {
     try { localStorage.setItem(COM_ADS_KEY, JSON.stringify(comAds)); } catch (_e) { /* 隐私模式忽略 */ }
@@ -12058,15 +12066,21 @@ el.dwVidPlayer.hidden = true;
 
   /** 一条广告的「口径说明」：图片由文案定时长，视频由视频定时长，手填则覆盖。 */
   const comAdMeta = (ad) => {
+    const medias = Array.isArray(ad.medias) ? ad.medias : [];
     const words = String(ad.text || '').replace(/\s+/g, '').length;
     const sec = comAdTextSec(ad.text);
     const manual = Number(ad.dur) || 0;
     const md = Number(ad.mediaDur) || 0;
-    if (!ad.media) return '先选素材；图片按文案定长短，视频按视频本身定长短';
+    if (!medias.length) return '先选素材（可多选图片做幻灯片）；图片按文案定长短，视频按视频本身定长短';
     if (ad.kind === 'image') {
-      if (manual > 0) return `图片 · 手填 ${manual.toFixed(1)} 秒（覆盖文案长度）`;
+      const n = medias.length;
+      const nTxt = n > 1 ? `图片 ${n} 张` : '图片';
+      if (manual > 0) {
+        return `${nTxt} · 手填 ${manual.toFixed(1)} 秒${n > 1 ? `（每张 ${(manual / n).toFixed(1)} 秒）` : ''}（覆盖文案长度）`;
+      }
       const stay = sec > 0 ? sec + 0.6 : 6;
-      return `图片 · 文案 ${words} 字 ≈ ${sec.toFixed(1)} 秒 → 画面停留 ${stay.toFixed(1)} 秒（自动）`;
+      return `${nTxt} · 文案 ${words} 字 ≈ ${sec.toFixed(1)} 秒 → 共停 ${stay.toFixed(1)} 秒`
+        + (n > 1 ? `（每张 ${(stay / n).toFixed(1)} 秒）` : '') + '（自动）';
     }
     if (manual > 0) return `视频${md ? ' ' + md.toFixed(1) + ' 秒' : ''} · 手填 ${manual.toFixed(1)} 秒（覆盖视频长度）`;
     if (!md) return `视频 · 时长待探测${sec > 0 ? `（文案 ${words} 字 ≈ ${sec.toFixed(1)} 秒）` : ''}`;
@@ -12082,9 +12096,15 @@ el.dwVidPlayer.hidden = true;
     const box = document.getElementById('comAdList');
     if (!box) return;
     box.innerHTML = comAds.map((ad, i) => {
-      const name = ad.name || (ad.media ? String(ad.media).split(/[\\/]/).pop() : '');
+      const medias = Array.isArray(ad.medias) ? ad.medias : [];
+      const baseName = (p) => String(p).split(/[\\/]/).pop();
+      const name = medias.length > 1
+        ? `${baseName(medias[0])} 等 ${medias.length} 张`
+        : (medias.length ? baseName(medias[0]) : (ad.name || ''));
+      const pickTitle = medias.length ? medias.join('\n') : '从本机选择视频或图片（图片可多选，会自动做成幻灯片）';
       const isAfter = ad.pos === 'after';
-      const kindTxt = !ad.media ? '' : (ad.kind === 'image' ? '图片' : '视频');
+      const kindTxt = !medias.length ? ''
+        : (ad.kind === 'image' ? (medias.length > 1 ? `图片 ${medias.length}` : '图片') : '视频');
       return `
       <div class="com-ad-row" data-i="${i}">
         <div class="com-ad-line">
@@ -12096,7 +12116,7 @@ el.dwVidPlayer.hidden = true;
           <input type="number" class="com-ad-idx" data-i="${i}" min="1" step="1"
                  value="${Number(ad.idx) || 1}" ${isAfter ? '' : 'hidden'} title="插在第几段解说之后" />
           <button type="button" class="btn btn-sm btn-ghost com-ad-pick" data-i="${i}"
-                  title="${ad.media ? escHtml(String(ad.media)) : '从本机选择视频或图片'}">${name ? escHtml(name) : '选择素材'}</button>
+                  title="${escHtml(pickTitle)}">${name ? escHtml(name) : '选择素材'}</button>
           ${kindTxt ? `<span class="com-ad-kind">${kindTxt}</span>` : ''}
           <input type="number" class="com-ad-dur" data-i="${i}" min="0" max="120" step="1"
                  value="${Number(ad.dur) || 0}" placeholder="自动"
@@ -12110,9 +12130,24 @@ el.dwVidPlayer.hidden = true;
     }).join('');
     const hint = document.getElementById('comAdFoldHint');
     if (hint) {
-      const n = comAds.filter(a => a && a.media).length;
+      const n = comAds.filter(a => a && Array.isArray(a.medias) && a.medias.length).length;
       hint.textContent = n ? `${n} 条` : '未添加';
     }
+  };
+
+  /** 视频素材探测时长（图片不需要：它的长度由文案定）。失败静默，界面回落「待探测」。 */
+  const comAdProbe = (i, p) => {
+    fetch('/api/commentary/ad-probe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'path=' + encodeURIComponent(p),
+    }).then(r => r.json()).then(j => {
+      if (!j || !j.ok) return;
+      if (!comAds[i]) return;
+      comAds[i].kind = j.kind || comAds[i].kind;
+      comAds[i].mediaDur = Number(j.duration) || 0;
+      comAdsPersist();
+    }).catch(() => {});
   };
 
   const comAdsPick = (i) => {
@@ -12124,33 +12159,47 @@ el.dwVidPlayer.hidden = true;
     }
     Promise.resolve(api.chooseFiles('any')).then((list) => {
       if (!list || !list.length) return;
-      const p = String(list[0]);
-      comAds[i].media = p;
-      comAds[i].name = p.split(/[\\/]/).pop();
-      // 先按扩展名判类型（立即可用），再用后端探测补真实时长：视频靠它算「建议文案字数」
-      comAds[i].kind = /\.(jpe?g|png|webp|bmp|gif|tiff?)$/i.test(p) ? 'image' : 'video';
-      comAds[i].mediaDur = 0;
+      const paths = list.map(String);
+      const isImg = (p) => /\.(jpe?g|png|webp|bmp|gif|tiff?)$/i.test(p);
+      const imgs = paths.filter(isImg);
+      const vids = paths.filter((p) => !isImg(p));
+
+      // 一次选多张图片 = 一条幻灯片广告（总时长均分给每张）
+      if (imgs.length) {
+        comAds[i].medias = imgs;
+        comAds[i].kind = 'image';
+        comAds[i].mediaDur = 0;
+        comAds[i].name = imgs[0].split(/[\\/]/).pop();
+      }
+      // 视频一次一条（各自独立定时长）：第一个填当前行（当前行不是图片时），其余各开一条
+      vids.forEach((p, k) => {
+        if (k === 0 && !imgs.length) {
+          comAds[i].medias = [p];
+          comAds[i].kind = 'video';
+          comAds[i].mediaDur = 0;
+          comAds[i].name = p.split(/[\\/]/).pop();
+          comAdProbe(i, p);
+        } else {
+          comAds.push({
+            pos: comAds[i] ? comAds[i].pos : 'tail',
+            idx: comAds[i] ? comAds[i].idx : 1,
+            medias: [p], kind: 'video', mediaDur: 0, dur: 0, text: '',
+            name: p.split(/[\\/]/).pop(),
+          });
+          comAdProbe(comAds.length - 1, p);
+        }
+      });
       comAdsPersist();
-      fetch('/api/commentary/ad-probe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'path=' + encodeURIComponent(p),
-      }).then(r => r.json()).then(j => {
-        if (!j || !j.ok) return;
-        comAds[i].kind = j.kind || comAds[i].kind;
-        comAds[i].mediaDur = Number(j.duration) || 0;
-        comAdsPersist();
-      }).catch(() => {});
     }).catch(() => {});
   };
 
   /** 下发用：只保留真正选了素材的条目；空数组=不插广告（老行为）。 */
   const comGetAdsSpec = () => comAds
-    .filter(a => a && a.media)
+    .filter(a => a && Array.isArray(a.medias) && a.medias.length)
     .map(a => ({
       pos: a.pos === 'head' ? 'head' : (a.pos === 'after' ? 'after' : 'tail'),
       idx: Math.max(1, parseInt(a.idx, 10) || 1),
-      media: String(a.media),
+      medias: a.medias.map(String),      // 多张图片 = 幻灯片；视频只取第一条（管线兜底）
       dur: Math.max(0, Math.min(120, parseFloat(a.dur) || 0)),
       text: String(a.text || '').trim(),
     }));
@@ -12161,7 +12210,7 @@ el.dwVidPlayer.hidden = true;
     const addBtn = document.getElementById('comAdAdd');
     if (addBtn) {
       addBtn.addEventListener('click', () => {
-        comAds.push({ pos: 'tail', idx: 1, media: '', name: '', dur: 0, text: '' });
+        comAds.push({ pos: 'tail', idx: 1, medias: [], kind: '', mediaDur: 0, name: '', dur: 0, text: '' });
         comAdsPersist();
       });
     }
