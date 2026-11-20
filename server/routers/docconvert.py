@@ -10,6 +10,16 @@ import app
 import lo_engine
 import pdf_office
 from fastapi import APIRouter
+from stats import record_event
+
+
+def _cloud_report(resource: str, title: str = "") -> None:
+    """本地功能用量补上报授权中心（不参与配额闸门，只统计）。"""
+    try:
+        from routers.cloud_account import report_feature_usage_cloud
+        report_feature_usage_cloud(resource, title=title)
+    except Exception:  # noqa: BLE001
+        pass
 
 router = APIRouter()
 
@@ -69,6 +79,11 @@ def _run_doc_convert(job_id: str, src_path: str, base: str, cleanup: bool = Fals
             job["pages"] = res["pages"]
             job["filename"] = os.path.basename(res["pptx"] or res["docx"])
             job["stage"] = "完成"
+            try:
+                record_event("docconvert")
+            except Exception:  # noqa: BLE001 — 统计绝不影响转换成功
+                pass
+            _cloud_report("docconvert")
             # 写 sidecar：内存任务重启/过期后，下载接口靠它从磁盘恢复原始文件名/页数/设备号。
             _write_sidecar(job_id, {
                 "src_name": job.get("src_name", ""),

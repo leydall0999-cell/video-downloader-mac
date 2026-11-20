@@ -4,6 +4,16 @@ handler 通过 `app.<name>` 访问共享内核（globals/helper/导入）。
 """
 import app
 from fastapi import APIRouter
+from stats import record_event
+
+
+def _cloud_report(resource: str, title: str = "") -> None:
+    """本地功能用量补上报授权中心（不参与配额闸门，只统计）。"""
+    try:
+        from routers.cloud_account import report_feature_usage_cloud
+        report_feature_usage_cloud(resource, title=title)
+    except Exception:  # noqa: BLE001
+        pass
 
 router = APIRouter()
 
@@ -16,11 +26,17 @@ def torrent_list() -> dict:
 def torrent_add(req: app.TorrentAddRequest) -> dict:
     app._require_torrent()
     try:
-        return app.torrent_manager.add(
+        out = app.torrent_manager.add(
             uri=req.uri, name=req.name or None, paused=req.paused,
             save_path=req.save_path or None,
             file_priorities={int(k): int(v) for k, v in req.file_priorities.items()} or None,
         )
+        try:
+            record_event("torrent")
+        except Exception:  # noqa: BLE001 — 统计绝不影响种子添加
+            pass
+        _cloud_report("torrent")
+        return out
     except ValueError as e:
         raise app.HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -40,9 +56,15 @@ async def torrent_add_file(
     if not data:
         raise app.HTTPException(status_code=400, detail=".torrent 文件为空")
     try:
-        return app.torrent_manager.add(
+        out = app.torrent_manager.add(
             torrent_data=data, name=name or None, paused=paused, save_path=save_path or None,
         )
+        try:
+            record_event("torrent")
+        except Exception:  # noqa: BLE001 — 统计绝不影响种子添加
+            pass
+        _cloud_report("torrent")
+        return out
     except ValueError as e:
         raise app.HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:

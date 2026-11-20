@@ -7,6 +7,16 @@ handler 通过 `app.<name>` 访问共享内核（globals/helper/导入）。
 """
 import app
 from fastapi import APIRouter, Request
+from stats import record_event
+
+
+def _cloud_report(resource: str, title: str = "") -> None:
+    """本地功能用量补上报授权中心（不参与配额闸门，只统计）。"""
+    try:
+        from routers.cloud_account import report_feature_usage_cloud
+        report_feature_usage_cloud(resource, title=title)
+    except Exception:  # noqa: BLE001
+        pass
 
 router = APIRouter()
 
@@ -52,6 +62,11 @@ def add_subscription(payload: app.SubscribeRequest, request: Request) -> dict:
         owner_id=app._task_owner(request),
     )
     app.sub_store.add(sub)
+    try:
+        record_event("subscribe")
+    except Exception:  # noqa: BLE001 — 统计绝不影响订阅创建
+        pass
+    _cloud_report("subscribe")
     return sub.to_public_dict()
 
 @router.delete("/api/subscriptions/{sub_id}")

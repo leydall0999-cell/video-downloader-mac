@@ -12,6 +12,7 @@ from PIL import Image
 import app
 import matting_ai as mat
 from fastapi import APIRouter
+from stats import record_event
 
 try:  # numpy / cv2 均随 App 打包（抠图链路已依赖）；缺失时本模块退化为纯 PIL 构图
     import numpy as _np
@@ -386,6 +387,10 @@ def _run(job_id: str, src: str, w: int, h: int, bg: str, layout: int, label: str
         job.update(status="completed", phase="", progress="", out_path=str(out_path),
                    rgba_path=str(rgba_path), src_path=src,
                    filename=f"证件照_{label}_{w}x{h}.png", detail=info)
+        try:
+            record_event("idphoto")
+        except Exception:  # noqa: BLE001 — 统计绝不影响出片
+            pass
         ok = True
     except Exception as e:  # noqa: BLE001
         job.update(status="failed", phase="", progress="", error=str(e)[:500])

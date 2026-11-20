@@ -405,6 +405,10 @@ def _run_sr(job_id: str, src: str, mode: str, scale: int, src_is_temp: bool) -> 
         job["stage"] = "完成"
         job["progress"] = 100
         job["elapsed"] = round(time.time() - job.get("_t0", time.time()), 1)
+        try:
+            record_event("sr")
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as e:  # noqa: BLE001
         job["status"] = "failed"
         job["error"] = str(e)[:400]
