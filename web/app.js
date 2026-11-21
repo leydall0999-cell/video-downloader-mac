@@ -10769,7 +10769,7 @@ el.dwVidPlayer.hidden = true;
           extract_script: el.extractSelect.value || '',
           format_id: opts.format_id ?? '',
           concurrent_fragments: el.concurrentInput.value ? parseInt(el.concurrentInput.value, 10) || 0 : 0,
-          downloader: el.downloaderSelect ? el.downloaderSelect.value || 'native' : 'native',
+          downloader: el.downloaderSelect ? el.downloaderSelect.value || 'aria2c' : 'aria2c',
           play_url: resolved?.video?.play_url || '',
           watch_options: resolved?.video?.watch_options || [],
           is_hls: !!resolved?.video?.is_hls,
