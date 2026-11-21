@@ -2778,12 +2778,14 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
    `90 + 180 > 164` 会让它当场折到第二行，再叠加片长就是三行 —— 就是原来那个毛病。
    给小基准才会「先缩到能放下、放不下才折行」：164px 下得「标题 / 片长+片名」两行（~52px），
    栏宽 ≥ ~240px 时三项并成一行（~25px）。片名截断有 title 悬停兜底，且成片预览就在旁边。 */
+/* 2026-11-21 用户「分两行」：标题独占上行；片名在前、片长在后排下行。
+   实现：h3 flex-basis:100% 强制换行；片名 flex:1 吃掉剩余宽并省略号，片长 flex:0 0 auto 跟在后面。 */
 .com-trim-head {
   display: flex; flex-wrap: wrap; align-items: baseline;
   column-gap: .5rem; row-gap: .1rem;
   margin-bottom: .3rem;
 }
-.com-trim-head h3 { margin: 0; font-size: .95rem; color: var(--text); flex: 0 0 auto; }
+.com-trim-head h3 { margin: 0; font-size: .95rem; color: var(--text); flex: 0 0 100%; }
 .com-trim-title { flex: 1 1 50px; min-width: 0; font-size: .76rem; color: var(--text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .com-trim-dur { flex: 0 0 auto; font-size: .78rem; color: var(--brand); font-weight: 600; }
 /* 片尾开始 ≤ 正剧开始 时把「片长」位置换成红色提示（同上，见 updateTrimDurationText） */
@@ -3292,6 +3294,24 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
 }
 .com-mode-dropdown-option:hover { background: var(--brand-soft, #eef2ff); }
 .com-mode-dropdown-option.is-selected { background: color-mix(in srgb, var(--brand) 12%, #fff); color: var(--brand-strong); font-weight: 600; }
+/* 2026-11-21 自绘悬停提示：pywebview 原生 title 不弹，改用浮层。默认隐藏，鼠标停在 [data-tip] 上即显。 */
+.com-hover-tip {
+  position: fixed; z-index: 2147483000; pointer-events: none;
+  max-width: 260px; padding: .3rem .55rem;
+  /* 2026-11-21 用户「要右边浅色那种」：浅底深字（贴近系统原生 tooltip），不要再黑底白字大块。 */
+  background: #f6f7f9; color: #2b303b;
+  border: 1px solid rgba(15,23,42,.10);
+  border-radius: 5px; box-shadow: 0 2px 8px rgba(15,23,42,.14);
+  font-size: .72rem; line-height: 1.35; white-space: normal;
+  opacity: 0; visibility: hidden; transition: opacity .1s;
+}
+.com-hover-tip.is-on { opacity: 1; visibility: visible; }
+/* 深色主题反相：深底浅字，避免夜里刺眼 */
+html.theme-dark .com-hover-tip {
+  background: #2a2e37; color: #e8ebf2;
+  border-color: rgba(255,255,255,.10);
+  box-shadow: 0 2px 10px rgba(0,0,0,.4);
+}
 /* 禁用态（2026-11-11）：当前「解说类型」下这一项不参与计算 ⇒ 整格灰化、不可点开。
    JS 只加 .is-disabled + button[disabled]，不改写原有选择；切回高光模式即恢复。 */
 .com-mode-dropdown.is-disabled { opacity: .45; }
@@ -3589,6 +3609,13 @@ textarea::placeholder { color: #b8c2d2; opacity: 1; }
 .com-ad-line .com-ad-del { flex: 0 0 auto; padding: .1rem .35rem; font-size: .78rem; line-height: 1.2; }
 .com-ad-text { margin-top: .35rem; font-size: .76rem; }
 #commentaryView .com-ad-section .com-retain-note { margin-top: .45rem; }
+/* 广告贴片卡（2026-11-21 从生成前右栏搬进「解说词审核」面板）：
+   面板比右栏宽，素材按钮别被拉成一整行，文案框独占一行；空列表不占位。 */
+.com-ad-list-inpanel { margin: .55rem 0 .15rem; }
+.com-ad-list-inpanel:empty { display: none; }
+.com-ad-list-inpanel .com-ad-row { background: color-mix(in srgb, var(--brand) 4%, #fff); }
+.com-ad-list-inpanel .com-ad-line .com-ad-pick { flex: 0 1 16rem; }
+.com-ad-list-inpanel .com-ad-line .com-ad-idx { flex: 0 0 4.2rem; width: 4.2rem; }
 
 /* 下拉项置灰（不可用项直接灰显不可选） */
 .com-select option:disabled { color: #b0b0b0; }.com-select option { font-size: .78rem; }
@@ -6921,7 +6948,8 @@ body.com-hist-open #comHistScrim { opacity: 1; pointer-events: auto; }
   border-radius: 10px; box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
 }
 .com-left .com-trim-card { padding-bottom: .6rem; }
-.com-left .com-trim-head { padding: .5rem .7rem .3rem; }
+/* 2026-11-21 用户「预览与正剧范围 左靠齐」：卡头取消左内边距，让标题/片名与下方「起点/终点」标签左对齐；右侧保留 .7rem 避免时长顶边。 */
+.com-left .com-trim-head { padding: .5rem .7rem .3rem 0; }
 /* 2026-09-20：行首 ✂️ 已删（用户「logo 也不要了」）→ h3 不再需要 flex 对齐图标 */
 .com-left .com-trim-head h3 { margin: 0; font-size: .85rem; }
 

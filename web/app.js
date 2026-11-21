@@ -12095,6 +12095,16 @@ el.dwVidPlayer.hidden = true;
   const comAdsRender = () => {
     const box = document.getElementById('comAdList');
     if (!box) return;
+    // 当前有效解说段数：给「第 N 段之后」一个可见参照（审核面板里段数已确定，不再盲填）
+    // ⚠️ comAdsRender 在本模块初始化时就跑了一次，而 currentScriptSegments 的 let 声明
+    //    在更后面才执行 ⇒ 直接读会踩 TDZ（ReferenceError: Cannot access uninitialized
+    //    variable），整页初始化被打断。必须先容错：首次拿不到按 0 段，脚本载入后
+    //    重新渲染（13098 附近）时自然取到真实段数。
+    let _totalSeg = 0;
+    try {
+      _totalSeg = (Array.isArray(currentScriptSegments) ? currentScriptSegments : [])
+        .filter((s) => String((s && s.narration) || '').trim()).length;
+    } catch (_e) { _totalSeg = 0; }
     box.innerHTML = comAds.map((ad, i) => {
       const medias = Array.isArray(ad.medias) ? ad.medias : [];
       const baseName = (p) => String(p).split(/[\\/]/).pop();
@@ -12111,10 +12121,10 @@ el.dwVidPlayer.hidden = true;
           <select class="com-ad-pos" data-i="${i}" title="广告插在哪">
             <option value="head"${ad.pos === 'head' ? ' selected' : ''}>片头</option>
             <option value="tail"${ad.pos === 'tail' ? ' selected' : ''}>片尾</option>
-            <option value="after"${isAfter ? ' selected' : ''}>第 N 段后</option>
+            <option value="after"${isAfter ? ' selected' : ''}>第 N 段之后</option>
           </select>
           <input type="number" class="com-ad-idx" data-i="${i}" min="1" step="1"
-                 value="${Number(ad.idx) || 1}" ${isAfter ? '' : 'hidden'} title="插在第几段解说之后" />
+                 value="${Number(ad.idx) || 1}" ${isAfter ? '' : 'hidden'} title="插在第几段解说之后（当前共 ${_totalSeg} 段；填超过会放到片尾）" />
           <button type="button" class="btn btn-sm btn-ghost com-ad-pick" data-i="${i}"
                   title="${escHtml(pickTitle)}">${name ? escHtml(name) : '选择素材'}</button>
           ${kindTxt ? `<span class="com-ad-kind">${kindTxt}</span>` : ''}
@@ -12899,6 +12909,66 @@ el.dwVidPlayer.hidden = true;
     if (ta) { try { row.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); ta.focus(); } catch (_) {} }
   };
 
+  /** 按当前预览画面算「插在第几段解说之后」（1 起）。
+   *  口径与管线一致：下发的 idx 会被 `_ai = clamp(idx-1)` 映射成画面块下标。
+   *  没在播 / 没段 → 放最后一段之后；落在某段之内 → 插在**该段之后**（用户停在这段画面，
+   *  广告自然接在这段之后播）。这样「第 N 段」有了面板可见的段数作参照，不再是盲填。 */
+  const comAdInsertIdx = () => {
+    const segs = Array.isArray(currentScriptSegments) ? currentScriptSegments : [];
+    const off = Number(currentScriptRangeStart) || 0;
+    const pv = document.getElementById('comPreview');
+    let rel = NaN;
+    if (pv && isFinite(pv.currentTime) && pv.currentTime > 0.2) rel = pv.currentTime - off;
+    const valid = segs.filter((s) => String((s && s.narration) || '').trim());
+    if (!valid.length) return 1;
+    if (!isFinite(rel)) return valid.length;          // 没在播 → 片尾段之后
+    for (let k = 0; k < valid.length; k += 1) {
+      if ((Number(valid[k].end) || 0) > rel) return k + 1;   // 落在第 k+1 段 → 插它之后
+    }
+    return valid.length;
+  };
+
+  /** 审核面板「＋ 插入广告贴片」：选本机视频/图片 → 追加一条贴片广告。
+   *  与生成前旧卡同一套下游（comAds → !ads= → 管线 _parse_ad_specs），只管放对位置。
+   *  图片可多选（做幻灯片）；视频一次一条，各自独立定时长。 */
+  const comAddAdClip = () => {
+    const api = (window.VDL && window.VDL.desktop) || null;
+    if (!api || typeof api.chooseFiles !== 'function') {
+      const st = document.getElementById('comScriptStatus');
+      if (st) {
+        st.hidden = false;
+        st.className = 'com-script-status com-script-warn';
+        st.textContent = '网页版不支持插入本机素材（广告贴片只在桌面版可用）';
+      }
+      return;
+    }
+    Promise.resolve(api.chooseFiles('any')).then((list) => {
+      if (!list || !list.length) return;
+      const paths = list.map(String);
+      const isImg = (p) => /\.(jpe?g|png|webp|bmp|gif|tiff?)$/i.test(p);
+      const imgs = paths.filter(isImg);
+      const vids = paths.filter((p) => !isImg(p));
+      const idx = comAdInsertIdx();
+      // 多张图片 = 一条幻灯片广告（总时长均分）；视频各自一条
+      if (imgs.length) {
+        comAds.push({
+          pos: 'after', idx, medias: imgs, kind: 'image', mediaDur: 0, dur: 0,
+          text: '', name: imgs[0].split(/[\\/]/).pop(),
+        });
+      }
+      vids.forEach((p) => {
+        const at = comAds.length;
+        comAds.push({
+          pos: 'after', idx, medias: [p], kind: 'video', mediaDur: 0, dur: 0,
+          text: '', name: p.split(/[\\/]/).pop(),
+        });
+        comAdProbe(at, p);
+      });
+      comAdsPersist();
+      comAdsRender();
+    }).catch(() => {});
+  };
+
   /** 广告卡改时间：解析输入 → 夹进正片范围 → 回写草稿/dataset → 重排 + 重画时间轴。
    *  只在 change（失焦 / 回车）时调用：边打字边重排会让输入框从手指底下跑掉。 */
   const comAdCommitTime = (row) => {
@@ -13030,6 +13100,11 @@ el.dwVidPlayer.hidden = true;
       // 「＋ 插入广告口播」入口（index.html 里在列表下方常驻）
       const _addAdBtn = $('comSegAddAd');
       if (_addAdBtn) _addAdBtn.onclick = () => comAddAdSeg();
+      // 「＋ 插入广告贴片」入口（2026-11-21 从生成前右栏搬到审核面板）
+      const _addClipBtn = $('comSegAddClip');
+      if (_addClipBtn) _addClipBtn.onclick = () => comAddAdClip();
+      // 脚本载入时刷新一遍贴片卡：段数已定，卡片里的「第 N 段之后」才有参照
+      try { comAdsRender(); } catch (_e) { /* 渲染失败不影响审核面板 */ }
       // ⚖ 自动校准：字多时长少的段，自己把结束时间往后撑
       const _calibBtn = $('comSegCalib');
       if (_calibBtn) _calibBtn.onclick = () => comAutoCalibrate();
@@ -16980,9 +17055,12 @@ el.dwVidPlayer.hidden = true;
       kind: 'radio',
       title: '剪辑模板',
       hide: '.com-opt-row-fixed',
-      options: [['standard', '现有解说（原片配旁白）'],
-                ['reconstruct', '重构叙事二创（原创信息卡隔断＋剧情重排）'],
-                ['series', '剧集深度解说（剧集知识卡隔断＋防剧透）']],
+      // 2026-11-21 用户改：顺序＝剧集深度解说(推荐)→普通解说→重构叙事二创；
+      // 文案去掉括号描述（括号内容移到悬停提示，见第三项 opt[2]）。
+      // 🔴 value 三值不变（standard/reconstruct/series），只动显示文案与顺序，逻辑零影响。
+      options: [['series', '剧集深度解说(推荐)', '剧集知识卡隔断+防剧透'],
+                ['standard', '普通解说', '原片配旁白解说'],
+                ['reconstruct', '重构叙事二创', '原创信息卡隔断+剧情重排']],
     },
     comHlSource: {
       kind: 'radio',
@@ -17163,6 +17241,48 @@ el.dwVidPlayer.hidden = true;
     }
   };
 
+  // 2026-11-21 自定义悬停提示：pywebview/WKWebView 对原生 title tooltip 支持很差（不弹/延迟极久），
+  // 剪辑模板三项的说明改用自绘浮层——鼠标一停即显示、跟随定位、移开即隐。只创建一次，事件委托到 document。
+  const comTipEnsure = () => {
+    let tip = document.getElementById('comHoverTip');
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.id = 'comHoverTip';
+      tip.className = 'com-hover-tip';
+      tip.setAttribute('role', 'tooltip');
+      document.body.appendChild(tip);
+    }
+    return tip;
+  };
+  if (!window.__comHoverTipBound) {
+    window.__comHoverTipBound = true;
+    document.addEventListener('mouseover', (e) => {
+      const t = e.target.closest && e.target.closest('[data-tip]');
+      if (!t) return;
+      const txt = t.getAttribute('data-tip');
+      if (!txt) return;
+      const tip = comTipEnsure();
+      tip.textContent = txt;
+      tip.classList.add('is-on');
+      const r = t.getBoundingClientRect();
+      // 先显示再量尺寸；优先放选项右侧，右边放不下就翻到左侧，垂直居中对齐选项
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let left = r.right + 8, top = r.top + (r.height - th) / 2;
+      if (left + tw > window.innerWidth - 8) left = r.left - tw - 8;
+      if (left < 8) left = 8;
+      if (top < 8) top = 8;
+      if (top + th > window.innerHeight - 8) top = window.innerHeight - th - 8;
+      tip.style.left = Math.round(left) + 'px';
+      tip.style.top = Math.round(top) + 'px';
+    });
+    document.addEventListener('mouseout', (e) => {
+      const t = e.target.closest && e.target.closest('[data-tip]');
+      if (!t) return;
+      const tip = document.getElementById('comHoverTip');
+      if (tip) tip.classList.remove('is-on');
+    });
+  }
+
   const initComSelect = (block) => {
     // data-com-select-inline：保留原生单选组的内联胶囊排布，不做下拉化
     // （解说风格：10 个 2~4 字短标签，下拉浮层会盖住下方内容且一路拉到底）
@@ -17197,12 +17317,17 @@ el.dwVidPlayer.hidden = true;
     panel.setAttribute('role', 'listbox');
     panel.hidden = true;
     const optionTextMap = new Map();
-    def.options.forEach(([val, text]) => {
+    def.options.forEach(([val, text, hint]) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'com-mode-dropdown-option';
       b.setAttribute('role', 'option');
       b.setAttribute('data-value', val);
+      // 2026-11-21：可选第三项＝悬停提示（如剪辑模板的「剧集知识卡隔断+防剧透」）。
+      // 其它下拉没有第三项时 hint 为 undefined，不设 data-tip，行为不变。
+      // 🔴 只设 data-tip（自绘浮层）；不设 title —— 否则原生 tooltip 与自绘浮层两个同时弹。
+      //    无障碍语义用 aria-label（不产生视觉提示）。
+      if (hint) { b.setAttribute('data-tip', hint); b.setAttribute('aria-label', hint); }
       const strong = document.createElement('b');
       strong.textContent = text;
       b.appendChild(strong);

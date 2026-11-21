@@ -2799,15 +2799,15 @@
         </div>
       </details>
                 <div class="com-trim-card" id="comTrimCard" hidden data-page-node-id="nDMvyIlDN1rvgp4iVG14i4">
-      <!-- 2026-09-20（用户：「这个标题能再节约一点空间吗，现在是半中间，不上不下的，logo 也不要了」）：
-           ① 去掉行首 ✂️（logo 不要了）；
-           ② 卡片头从「竖排三行（标题／片名／片长）」压成「标题 + 片长同行、片名另起一行」：
-              窄左栏下标题不再孤零零悬在中间，无片时整块只剩一行（实测省 ~20px，有片时省 ~30px）。
-              DOM 顺序改成 标题 → 片长 → 片名：片长靠右对齐始终与标题同行，片名 flex-basis:100% 独占下一行。 -->
+      <!-- 2026-11-21（用户：「分两行：预览与正剧范围在上面一行，片名和时间一行，片名在前时间在后」）：
+           ① 标题「预览与正剧范围」独占第一行（h3 flex-basis:100%）；
+           ② 片名 + 片长排第二行，片名在前、片长在后（DOM 顺序 标题 → 片名 → 片长）。
+           历史：2026-09-20 曾是「标题 + 片长同行、片名另起一行」；本次按用户新要求改为两行、片名列在前。
+           JS 全部按 id 绑定，DOM 顺序变化不影响任何功能。 -->
       <div class="com-trim-head" data-page-node-id="NWaORyaaXLQ55Dud8PsRYH">
         <h3 data-page-node-id="MPKTEzTi8d6eAikX1YF05D">预览与正剧范围</h3>
-        <span class="com-trim-dur" id="comTrimDuration" title="片长：未知" data-page-node-id="z1AeLzMkwPDGwjcHvZTh68">--</span>
         <span class="com-trim-title" id="comTrimTitle" hidden data-page-node-id="tprw9KKGotopFrZTxIptQr"></span>
+        <span class="com-trim-dur" id="comTrimDuration" title="片长：未知" data-page-node-id="z1AeLzMkwPDGwjcHvZTh68">--</span>
       </div>
       <!-- 原「起点/终点」（外层源文件裁剪 + 滑块）已下线：与「正剧开始/片尾开始时间」都在界定正片范围，
            两处同填会叠加跳过（trim 先裁、drama 再按绝对时间前移）。现在只保留绝对时间一处，
@@ -3145,9 +3145,11 @@
         <div class="com-cell com-cell-trigger com-cell-template" data-com-select="comTemplate">
           <div class="com-opt-title">🎞 剪辑模板</div>
           <div class="com-opt-row com-opt-row-fixed">
-            <label class="com-mode-option com-mode-fixed" title="现有形态：原片按时间轴连续铺满，配上你的解说旁白"><input type="radio" name="comTemplate" value="standard" checked /><span><b>现有解说</b>（原片配旁白）</span></label>
-            <label class="com-mode-option com-mode-fixed" title="重构叙事：原片拆成短论据片段，中间用原创信息卡隔断，可重排剧情顺序"><input type="radio" name="comTemplate" value="reconstruct" /><span><b>重构叙事二创</b>（原创信息卡隔断＋剧情重排）</span></label>
-            <label class="com-mode-option com-mode-fixed" title="剧集深度解说（2026-11-15）：第三种成片形态。隔断结构与重构叙事相同，但冠片卡内容取剧集知识卡——人物／时代／典故／金句，并按剧名校正人名错听；绝不剧透后续集"><input type="radio" name="comTemplate" value="series" /><span><b>剧集深度解说</b>（剧集知识卡隔断＋防剧透）</span></label>
+            <!-- 2026-11-21 文案/顺序与 app.js COM_SELECT_DEFS.comTemplate 保持一致：
+                 剧集深度解说(推荐) → 普通解说 → 重构叙事二创；value 三值不变，默认仍 standard。 -->
+            <label class="com-mode-option com-mode-fixed" title="剧集知识卡隔断+防剧透"><input type="radio" name="comTemplate" value="series" /><span><b>剧集深度解说(推荐)</b></span></label>
+            <label class="com-mode-option com-mode-fixed" title="原片配旁白解说"><input type="radio" name="comTemplate" value="standard" checked /><span><b>普通解说</b></span></label>
+            <label class="com-mode-option com-mode-fixed" title="原创信息卡隔断+剧情重排"><input type="radio" name="comTemplate" value="reconstruct" /><span><b>重构叙事二创</b></span></label>
           </div>
         </div>
       </div>
@@ -3574,21 +3576,9 @@
         </div>
       </details>
 
-      <!-- 组 4b：广告贴片（视频/图片素材 + 广告词） -->
-      <details class="com-fold-card" id="comAdFold">
-        <summary class="com-fold-head">
-          <span class="com-fold-title">📢 广告贴片</span>
-          <span class="com-fold-hint" id="comAdFoldHint">未添加</span>
-        </summary>
-        <div class="com-opts com-ad-section">
-          <div id="comAdList" class="com-ad-list"></div>
-          <div class="com-opt-row">
-            <button type="button" class="btn btn-sm btn-ghost" id="comAdAdd"
-                    title="添加一条广告：选本机视频或图片，画面静音播放，广告词用当前配音念出来">＋ 添加广告（视频 / 图片）</button>
-          </div>
-          <span class="com-retain-note">位置可选片头 / 片尾 / 第 N 段解说之后，默认片尾最省完播率。素材直接取本机文件（不复制不上传），视频、图片都能选。<b>时长留 0＝自动</b>：图片跟随广告词长度（文案念多久停多久），视频跟随视频本身长度（文案短就留静音画面，文案长则视频循环）。广告与正片之间硬切，正片内部接缝照旧过渡。</span>
-        </div>
-      </details>
+      <!-- 组 4b 已移除（2026-11-21 用户：「移完就不要显示了」）：
+           广告贴片整体搬进「✏️ 解说词审核」面板底部（#comSegAddClip），
+           生成前右栏不再保留任何广告相关卡片——连引导提示都去掉，避免重复占位。 -->
 
       <!-- 组 5：导出剪映草稿 -->
       <details class="com-fold-card" id="comExportFold">
@@ -3699,12 +3689,20 @@
            不用重新生成脚本。⚠️ 别把这排按钮挪进滚动列表内部，否则永远滚不到。 -->
       <div class="com-seg-addbar" data-page-node-id="comSegAddbar">
         <button type="button" class="btn btn-sm btn-ghost com-seg-add" id="comSegAddAd" title="插入一段广告口播 / 补充对白：时间可自由填写，渲染时用当前配音念出来" data-page-node-id="comSegAddAdBtn">＋ 插入广告口播</button>
+        <!-- 2026-11-21（用户：「广告贴片整体移到生成脚本后的审核面板里」）：
+             贴片（视频 / 图片画面）从生成前的右栏搬到这里。插入位置自动取**当前预览画面**
+             落在第几段之后，段号写进卡片还能改；这样「第 N 段」有实际参照，不再是盲填。
+             素材与时长口径完全沿用原逻辑（本机文件、0=自动）。 -->
+        <button type="button" class="btn btn-sm btn-ghost com-seg-add" id="comSegAddClip" title="插入一段广告贴片（视频 / 图片画面）：按当前预览画面自动定位到某段解说之后，可在卡片里改段号" data-page-node-id="comSegAddClipBtn">＋ 插入广告贴片</button>
         <!-- 2026-11-09 用户：「加个自动校准，比如文字多了、匹配的时间少了，能够自动调整」。
              按字数把每段的结束时间往后撑到刚好念完（不压下一段、不越正剧片尾）；
              撑不动的段会如实报「还差几个字」，提示精简。 -->
         <button type="button" class="btn btn-sm btn-ghost com-seg-calib" id="comSegCalib" title="自动校准：哪段文字装不下，就把它自己的结束时间往后延到刚好念完（不会压到下一段，也不会越过片尾）" data-page-node-id="comSegCalibBtn">⚖ 自动校准</button>
         <span class="com-seg-addhint" data-page-node-id="comSegAddHint">时间按原片填写，可随时改；渲染时自动配音</span>
       </div>
+      <!-- 广告贴片卡片列表（2026-11-21 从右栏搬来）：id 沿用 comAdList，
+           现有 comAdsRender / 选素材 / 删除 / 时长编辑全部逻辑零改动复用。 -->
+      <div id="comAdList" class="com-ad-list com-ad-list-inpanel" data-page-node-id="comAdListPanel"></div>
       <!-- 真实的 <audio> 元素：pywebview 的 WebKit 对离屏 new Audio()/blob URL 支持不佳，
            用 DOM 内元素 + data URL 播放更稳定。不能用 display:none，否则 WebKit 拒绝播放。 -->
       <audio id="comAudioPreview" preload="auto" playsinline style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" data-page-node-id="UH41NHZXq20fibfP1N2yel"></audio>
