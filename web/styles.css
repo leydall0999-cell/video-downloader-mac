@@ -6405,9 +6405,11 @@ html.com-theater { overflow: hidden; }
      中栏到设置栏右边界之间 = 一条列间距 10px + 分隔条 8px（margin 0 -1px → 实占 6px）+ 10px
      = 26px，再加上设置栏自身宽度 → 负外边距正好把时间轴右端推到设置栏右边界。
      覆盖层的偏移用的是同一个 26px（见 #comScriptPanel 的 calc），改一处必须两处一起看。
-     z-index 抬到 3：时间轴要盖在设置栏之上（否则被右栏的背景吃掉）。
+     z-index 抬到 5：时间轴要盖在设置栏之上（否则被右栏的背景吃掉），
+     同时要压过字幕预览层（.com-sub-preview z=4）——配乐面板挂在本容器内（z=8），
+     若本容器只有 z=3，面板会被困在该层叠上下文里被字幕预览盖住（用户 2026-11-21 反馈）。
      设置栏靠 max-height 让出 --com-tl-h 的高度，保证没有内容被压住。 */
-  position: relative; z-index: 3;
+  position: relative; z-index: 5;
   margin-right: calc(-1 * (var(--com-right-w, 280px) + 26px));
 }
 /* 设置栏收起时它已经不在流里（flex gap 也消失）→ 负外边距必须撤掉，否则时间轴右端溢出视口 */
